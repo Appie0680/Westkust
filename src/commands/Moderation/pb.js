@@ -3,37 +3,42 @@ import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 export default {
     data: new SlashCommandBuilder()
         .setName('pb')
-        .setDescription('Plaats direct het Nexus Community partner bericht')
+        .setDescription('Plaats direct het Nexus Community promo bericht')
         .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
 
     async execute(interaction) {
         try {
-            const messageText = 
-                `# 🚀 We’re Back!\n` +
-                `# Nexus Community \n\n` +
-                `**A brand-new server, a fresh start, and more motivation than ever.**\n\n` +
-                `Join our growing community and enjoy:\n\n` +
-                `• Regular Giveaways\n` +
-                `• Custom Discord Bot\n` +
-                `• Active Community\n` +
-                `• Fun Events\n` +
-                `• Trusted Partnerships\n\n` +
-                `This is only the beginning. Join us today and be part of something bigger!\n\n` +
-                `🔗 Invite: https://discord.gg/f5XBqE5J2`;
+            const promoText = 
+`# 🚀 We’re Back!
+# Nexus Community 
 
-            // Stuur het bericht direct naar het kanaal
-            await interaction.channel.send({ content: messageText });
+**A brand-new server, a fresh start, and more motivation than ever.**
 
-            // Onzichtbare bevestiging voor jou zodat Discord niet klaagt over een haperende interactie
+Join our growing community and enjoy:
+
+• Regular Giveaways
+• Custom Discord Bot
+• Active Community
+• Fun Events
+• Trusted Partnerships
+
+This is only the beginning. Join us today and be part of something bigger!
+
+🔗 Invite: https://discord.gg/f5XBqE5J2`;
+
+            // Stuur het bericht direct naar het kanaal waar het commando getypt wordt
+            await interaction.channel.send({ content: promoText });
+
+            // Stille bevestiging voor de uitvoerder
             return interaction.reply({
-                content: '✅ Partner bericht geplaatst!',
+                content: '✅ Promo bericht geplaatst!',
                 ephemeral: true
             });
 
         } catch (error) {
             console.error('❌ Fout bij /pb commando:', error);
             return interaction.reply({
-                content: '❌ Er ging iets mis bij het versturen van het bericht.',
+                content: '❌ Er is iets misgegaan bij het versturen.',
                 ephemeral: true
             }).catch(() => null);
         }
