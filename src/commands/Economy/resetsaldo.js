@@ -8,10 +8,23 @@ import {
     EmbedBuilder
 } from 'discord.js';
 
+async function resetWalletBalance(client, userId) {
+    if (!client.wallets) client.wallets = new Map();
+    client.wallets.set(userId, 0);
+
+    if (client.db) {
+        try {
+            await client.db.query('UPDATE user_wallets SET balance = 0 WHERE user_id = $1', [userId]).catch(() => null);
+        } catch (e) {
+            // DB optioneel
+        }
+    }
+}
+
 export default {
     data: new SlashCommandBuilder()
         .setName('resetsaldo')
-        .setDescription('Reset het Nexus Portemonnee saldo van een gebruiker naar €0 (Beheer)')
+        .setDescription('Reset het Nexus Portemonnee saldo van een gebruiker naar €0,00')
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
         .addUserOption(option =>
             option.setName('gebruiker')
@@ -24,7 +37,6 @@ export default {
             const targetUser = interaction.options.getUser('gebruiker');
             const modalCustomId = `resetsaldo_auth_${interaction.id}`;
 
-            // Bouw het beveiligings-pop-up scherm
             const modal = new ModalBuilder()
                 .setCustomId(modalCustomId)
                 .setTitle('⚠️ Saldo Reset Beveiliging');
@@ -38,7 +50,6 @@ export default {
 
             modal.addComponents(new ActionRowBuilder().addComponents(passwordInput));
 
-            // Toon de pop-up
             await interaction.showModal(modal);
 
             const submitted = await interaction.awaitModalSubmit({
@@ -50,46 +61,42 @@ export default {
 
             const enteredPassword = submitted.fields.getTextInputValue('beheer_password');
 
-            // WACHTWOORD CHECK
             if (enteredPassword !== 'Nexus456!!') {
                 return submitted.reply({
-                    content: '❌ **Toegang Geweigerd!** Het ingevulde wachtwoord is onjuist.',
+                    content: '❌ **Toegang Geweigerd!** Onjuist wachtwoord ingevuld.',
                     ephemeral: true
                 });
             }
 
-            // Reset in database
-            if (interaction.client.db) {
-                try {
-                    await interaction.client.db.query(
-                        'UPDATE user_wallets SET balance = 0 WHERE user_id = $1',
-                        [targetUser.id]
-                    );
-                } catch (dbErr) {
-                    console.error('⚠️ Database reset fout:', dbErr.message);
-                }
-            }
+            // Reset uitvoeren
+            await resetWalletBalance(interaction.client, targetUser.id);
 
-            // Bevestigingsbericht
             await submitted.reply({
-                content: `🔄 **Saldo Gereset!** Het portemonnee saldo van <@${targetUser.id}> is succesvol teruggezet naar **€ 0,00**.`,
+                content: `🔄 **Saldo Gereset!** Het saldo van <@${targetUser.id}> is succesvol teruggezet naar **€ 0,00**.`,
                 ephemeral: true
             });
 
-            // LOGGING SYSTEEM
+            // LOGGING SYSTEEM IN #🎞️〢saldo-loggs
             const logChannel = interaction.guild.channels.cache.find(c => 
-                c.name === 'saldo-logs' || c.name === 'logs' || c.name === 'beheer-logs'
+                c.name.includes('saldo-loggs') || 
+                c.name.includes('saldo-logs') || 
+                c.name.includes('saldo_logs') ||
+                c.name.includes('logs')
             );
 
             if (logChannel) {
+                const timestamp = Math.floor(Date.now() / 1000);
                 const logEmbed = new EmbedBuilder()
-                    .setTitle('🔄 Saldo Gereset (Log)')
-                    .setColor('#FF0033')
-                    .addFields(
-                        { name: '👤 Gebruiker Gereset', value: `<@${targetUser.id}> (${targetUser.tag})`, inline: true },
-                        { name: '🛡️ Uitgevoerd door', value: `<@${interaction.user.id}> (${interaction.user.tag})`, inline: true },
-                        { name: '📉 Nieuw Saldo', value: '€ 0,00', inline: false }
+                    .setTitle('🔄 Saldo Gereset')
+                    .setColor('#FF3366') // Bright Crimson Red
+                    .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
+                    .setDescription(
+                        `>>> **👤 Gebruiker Gereset:** <@${targetUser.id}> (\`${targetUser.tag}\`)\n` +
+                        `**🛡️ Beheerder:** <@${interaction.user.id}> (\`${interaction.user.tag}\`)\n` +
+                        `**📉 Nieuw Saldo:** \`€ 0,00\`\n` +
+                        `**⏰ Datum & Tijd:** <t:${timestamp}:F>`
                     )
+                    .setFooter({ text: 'Nexus Saldo Logging System', iconURL: interaction.guild.iconURL({ dynamic: true }) })
                     .setTimestamp();
 
                 await logChannel.send({ embeds: [logEmbed] }).catch(() => null);
