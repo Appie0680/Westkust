@@ -84,12 +84,11 @@ export default {
                 ephemeral: true
             });
 
-            // LOGGING SYSTEEM IN #🎞️〢saldo-loggs
+            // EXACTE ZOEKOPDRACHT NAAR #🎞️〢saldo-loggs
             const logChannel = interaction.guild.channels.cache.find(c => 
-                c.name.includes('saldo-loggs') || 
-                c.name.includes('saldo-logs') || 
-                c.name.includes('saldo_logs') ||
-                c.name.includes('logs')
+                c.name === '🎞️〢saldo-loggs' ||
+                c.name === 'saldo-loggs' ||
+                (c.name.includes('saldo') && c.name.includes('loggs'))
             );
 
             if (logChannel) {
