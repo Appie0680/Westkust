@@ -8,16 +8,13 @@ import {
     EmbedBuilder
 } from 'discord.js';
 
-// Hulpfunctie om saldo op te slaan in geheugen & DB
 async function addWalletBalance(client, userId, amount) {
     if (!client.wallets) client.wallets = new Map();
     const current = client.wallets.get(userId) || 0;
     const newBalance = current + amount;
     
-    // Direct opslaan in geheugen
     client.wallets.set(userId, newBalance);
 
-    // Probeer op te slaan in DB als die aanwezig is
     if (client.db) {
         try {
             await client.db.query(`
@@ -69,9 +66,8 @@ export default {
                 });
             }
 
-            const modalCustomId = `saldoadd_auth_${interaction.id}`;
+            const modalCustomId = `saldoadd_modal_${interaction.id}`;
 
-            // Pop-up venster maken voor wachtwoord
             const modal = new ModalBuilder()
                 .setCustomId(modalCustomId)
                 .setTitle('🔐 Nexus Beheer Authenticatie');
@@ -103,16 +99,14 @@ export default {
                 });
             }
 
-            // Saldo verwerken
             const newTotalBalance = await addWalletBalance(interaction.client, targetUser.id, amount);
 
-            // Bevestigingsbericht
             await submitted.reply({
                 content: `✅ **Succesvol toegevoegd!**\n€ **${amount.toFixed(2)}** is toegevoegd aan de portemonnee van <@${targetUser.id}>.\nNieuw saldo: **€ ${newTotalBalance.toFixed(2)}**`,
                 ephemeral: true
             });
 
-            // EXACTE ZOEKOPDRACHT NAAR #🎞️〢saldo-loggs
+            // LOGGING SYSTEEM IN UITSLUITEND #🎞️孪saldo-loggs
             const logChannel = interaction.guild.channels.cache.find(c => 
                 c.name === '🎞️〢saldo-loggs' ||
                 c.name === 'saldo-loggs' ||
@@ -140,9 +134,6 @@ export default {
 
         } catch (error) {
             console.error('❌ Fout bij /saldoadd:', error);
-            if (!interaction.replied) {
-                await interaction.reply({ content: '❌ Er ging iets mis bij het toevoegen van het saldo.', ephemeral: true }).catch(() => null);
-            }
         }
     }
 };
