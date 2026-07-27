@@ -8,12 +8,20 @@ import {
     EmbedBuilder
 } from 'discord.js';
 
+// Hulpfunctie om saldo te resetten in geheugen & DB
 async function resetWalletBalance(client, userId) {
     if (!client.wallets) client.wallets = new Map();
     client.wallets.set(userId, 0);
 
     if (client.db) {
         try {
+            await client.db.query(`
+                CREATE TABLE IF NOT EXISTS user_wallets (
+                    user_id VARCHAR(32) PRIMARY KEY,
+                    balance NUMERIC(12, 2) DEFAULT 0
+                );
+            `).catch(() => null);
+
             await client.db.query('UPDATE user_wallets SET balance = 0 WHERE user_id = $1', [userId]).catch(() => null);
         } catch (e) {
             // DB optioneel
@@ -68,7 +76,7 @@ export default {
                 });
             }
 
-            // Reset uitvoeren
+            // Reset uitvoeren in geheugen & DB
             await resetWalletBalance(interaction.client, targetUser.id);
 
             await submitted.reply({
@@ -104,7 +112,9 @@ export default {
 
         } catch (error) {
             console.error('❌ Fout bij /resetsaldo:', error);
-            if (!interaction.replied) {
+            if (interaction.replied || interaction.deferred) {
+                await interaction.followUp({ content: '❌ Er ging iets mis bij het resetten van het saldo.', ephemeral: true }).catch(() => null);
+            } else {
                 await interaction.reply({ content: '❌ Er ging iets mis bij het resetten van het saldo.', ephemeral: true }).catch(() => null);
             }
         }
