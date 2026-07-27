@@ -1,5 +1,29 @@
 import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
 
+// Hulpfunctie om saldo op te halen uit geheugen / DB
+async function getWalletBalance(client, userId) {
+    if (!client.wallets) client.wallets = new Map();
+    
+    if (client.wallets.has(userId)) {
+        return client.wallets.get(userId);
+    }
+
+    if (client.db) {
+        try {
+            const res = await client.db.query('SELECT balance FROM user_wallets WHERE user_id = $1', [userId]);
+            if (res && res.rows && res.rows.length > 0) {
+                const bal = parseFloat(res.rows[0].balance) || 0;
+                client.wallets.set(userId, bal);
+                return bal;
+            }
+        } catch (e) {
+            // DB optioneel
+        }
+    }
+    
+    return 0;
+}
+
 export default {
     data: new SlashCommandBuilder()
         .setName('portemonnee')
@@ -13,51 +37,32 @@ export default {
     async execute(interaction) {
         try {
             const targetUser = interaction.options.getUser('gebruiker') || interaction.user;
-            
-            // Haal het saldo op uit de bot-database (of 0 als er niks is)
-            let currentBalance = 0;
-            if (interaction.client.db) {
-                try {
-                    const result = await interaction.client.db.query(
-                        'SELECT balance FROM user_wallets WHERE user_id = $1',
-                        [targetUser.id]
-                    );
-                    if (result && result.rows && result.rows.length > 0) {
-                        currentBalance = parseFloat(result.rows[0].balance) || 0;
-                    }
-                } catch (dbErr) {
-                    // Mocht de tabel nog niet bestaan of DB offline zijn
-                    console.warn('⚠️ Kon saldo niet ophalen uit DB:', dbErr.message);
-                }
-            }
+            const balance = await getWalletBalance(interaction.client, targetUser.id);
 
-            // Bouw de "zieke" Nexus Portemonnee Pop-up / Embed
+            // Strakke, mobielvriendelijke Nexus Embed
             const walletEmbed = new EmbedBuilder()
-                .setTitle(`👛 Nexus Portemonnee • ${targetUser.username}`)
-                .setColor('#00F0FF') // Cyberpunk Cyan
-                .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
+                .setTitle(`💳 Nexus Portemonnee`)
+                .setColor('#00F0FF') // Bright Neon Cyan
+                .setThumbnail(targetUser.displayAvatarURL({ dynamic: true, size: 256 }))
                 .setDescription(
-                    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-                    `💳 **Eigenaar:** <@${targetUser.id}>\n` +
-                    `🏦 **Nexus Status:** \`Actief Account\`\n` +
-                    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
+                    `>>> **Eigenaar:** <@${targetUser.id}>\n` +
+                    `**Gebruikersnaam:** \`${targetUser.tag}\`\n` +
+                    `**Status:** \`Nexus Account Actief\``
                 )
                 .addFields(
                     {
-                        name: '💰 **Huidig Saldo**',
-                        value: `\`\`\`fix\n€ ${currentBalance.toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n\`\`\``,
+                        name: '💰 Huidig Saldo',
+                        value: `\`\`\`yaml\n€ ${balance.toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n\`\`\``,
                         inline: false
                     }
                 )
                 .setFooter({
-                    text: 'Nexus Wallet System • Beheerd door Beheer',
+                    text: `Nexus Economy • Opgevraagd door ${interaction.user.username}`,
                     iconURL: interaction.guild.iconURL({ dynamic: true })
                 })
                 .setTimestamp();
 
-            return interaction.reply({
-                embeds: [walletEmbed]
-            });
+            return interaction.reply({ embeds: [walletEmbed] });
 
         } catch (error) {
             console.error('❌ Fout bij /portemonnee:', error);
