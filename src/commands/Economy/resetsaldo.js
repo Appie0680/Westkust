@@ -8,7 +8,6 @@ import {
     EmbedBuilder
 } from 'discord.js';
 
-// Hulpfunctie om saldo te resetten in geheugen & DB
 async function resetWalletBalance(client, userId) {
     if (!client.wallets) client.wallets = new Map();
     client.wallets.set(userId, 0);
@@ -43,7 +42,7 @@ export default {
     async execute(interaction) {
         try {
             const targetUser = interaction.options.getUser('gebruiker');
-            const modalCustomId = `resetsaldo_auth_${interaction.id}`;
+            const modalCustomId = `resetsaldo_modal_${interaction.id}`;
 
             const modal = new ModalBuilder()
                 .setCustomId(modalCustomId)
@@ -51,7 +50,7 @@ export default {
 
             const passwordInput = new TextInputBuilder()
                 .setCustomId('beheer_password')
-                .setLabel('Vul het beheerder wachtwoord in om te resetten:')
+                .setLabel('Vul het beheerder wachtwoord in:')
                 .setPlaceholder('Wachtwoord vereist...')
                 .setStyle(TextInputStyle.Short)
                 .setRequired(true);
@@ -84,7 +83,7 @@ export default {
                 ephemeral: true
             });
 
-            // EXACTE ZOEKOPDRACHT NAAR #🎞️〢saldo-loggs
+            // LOGGING SYSTEEM IN UITSLUITEND #🎞️〢saldo-loggs
             const logChannel = interaction.guild.channels.cache.find(c => 
                 c.name === '🎞️〢saldo-loggs' ||
                 c.name === 'saldo-loggs' ||
@@ -111,11 +110,6 @@ export default {
 
         } catch (error) {
             console.error('❌ Fout bij /resetsaldo:', error);
-            if (interaction.replied || interaction.deferred) {
-                await interaction.followUp({ content: '❌ Er ging iets mis bij het resetten van het saldo.', ephemeral: true }).catch(() => null);
-            } else {
-                await interaction.reply({ content: '❌ Er ging iets mis bij het resetten van het saldo.', ephemeral: true }).catch(() => null);
-            }
         }
     }
 };
