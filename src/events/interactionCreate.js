@@ -360,6 +360,41 @@ export default {
             }, interactionTraceContext));
           }
         } else if (interaction.isStringSelectMenu()) {
+          // --- PARTNER LEADERBOARD UITBETALINGSKEUZE CHECK ---
+          if (interaction.customId === 'select_payout_method') {
+            try {
+              if (!global.userPayoutChoices) global.userPayoutChoices = new Map();
+              
+              const selectedMethod = interaction.values[0];
+              global.userPayoutChoices.set(interaction.user.id, selectedMethod);
+
+              const methods = global.payoutMethods || new Map([
+                ['robux', { name: 'Robux', rate: 10, target: 800, unit: 'Robux' }],
+                ['springbank', { name: 'Springbank Coins', rate: 83, target: 500, unit: 'Coins' }],
+                ['geld', { name: 'Geld (€)', rate: 0.12, target: 10.00, unit: '€' }]
+              ]);
+
+              const methodInfo = methods.get(selectedMethod);
+              const methodName = methodInfo ? methodInfo.name : selectedMethod;
+
+              await interaction.reply({
+                content: `✅ Jouw uitbetalingsmethode is ingesteld op **${methodName}**! Alle volgende partners die je plaatst tellen mee voor dit doel.`,
+                flags: MessageFlags.Ephemeral
+              });
+
+              if (global.updatePartnerLeaderboard) {
+                await global.updatePartnerLeaderboard(client, interaction.guild);
+              }
+            } catch (err) {
+              logger.error('Error handling partner payout select menu:', {
+                error: err.message,
+                guildId: interaction.guildId,
+                userId: interaction.user?.id
+              });
+            }
+            return;
+          }
+
           const [customId, ...args] = interaction.customId.split(':');
           const selectMenu = client.selectMenus.get(customId);
 
@@ -469,3 +504,4 @@ export default {
     });
   }
 };
+
