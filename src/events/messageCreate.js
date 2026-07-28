@@ -29,6 +29,11 @@ if (!global.guessNumberState) {
     };
 }
 
+// Opslag voor de sticky message ID
+if (!global.partnerStickyMessageId) {
+    global.partnerStickyMessageId = null;
+}
+
 export default {
     name: Events.MessageCreate,
 
@@ -36,6 +41,40 @@ export default {
         if (message.author.bot || !message.guild) return;
 
         const channelName = message.channel.name.toLowerCase();
+
+        // ==========================================================
+        // FEATURE: STICKY MESSAGE IN PARTNER KANAAL (#🍀〢partners)
+        // ==========================================================
+        const isPartnerChannel = 
+            channelName === '🍀〢partners' ||
+            channelName === 'partners' ||
+            channelName.includes('partners');
+
+        if (isPartnerChannel) {
+            try {
+                // Verwijder het vorige sticky bericht als dat er nog staat
+                if (global.partnerStickyMessageId) {
+                    const oldSticky = await message.channel.messages.fetch(global.partnerStickyMessageId).catch(() => null);
+                    if (oldSticky) {
+                        await oldSticky.delete().catch(() => null);
+                    }
+                }
+
+                // De inhoud van de sticky message
+                const stickyText = `# We are against Scam, negative and leak servers. So we don't partner with this either`;
+
+                // Stuur het nieuwe sticky bericht direct onder het nieuw geplaatste partnerbericht
+                const newSticky = await message.channel.send({ content: stickyText });
+                
+                // Sla de ID op voor de volgende keer
+                global.partnerStickyMessageId = newSticky.id;
+
+            } catch (err) {
+                console.error('❌ Fout bij verwerken partner sticky message:', err);
+            }
+
+            return; // Beëindig uitvoering voor partnerkanaal
+        }
 
         // ==========================================================
         // GAME 1: GUESS THE NUMBER (#🔔〢guess-the-number)
@@ -65,7 +104,6 @@ export default {
 
             guessState.attempts += 1;
 
-            // HOGER (Het geheime getal is HOGER dan wat ingevoerd werd)
             if (guessedNumber < guessState.secretNumber) {
                 await message.react('⬆️').catch(() => null);
                 const reply = await message.reply(`⬆️ **Hoger!** Het gezochte getal is groter dan **${guessedNumber}**.`).catch(() => null);
@@ -75,7 +113,6 @@ export default {
                 return;
             }
 
-            // LAGER (Het geheime getal is LAGER dan wat ingevoerd werd)
             if (guessedNumber > guessState.secretNumber) {
                 await message.react('⬇️').catch(() => null);
                 const reply = await message.reply(`⬇️ **Lager!** Het gezochte getal is kleiner dan **${guessedNumber}**.`).catch(() => null);
@@ -85,7 +122,6 @@ export default {
                 return;
             }
 
-            // --- 🎉 GEWONNEN! EXACT GERADEN ---
             if (guessedNumber === guessState.secretNumber) {
                 guessState.isGuessed = true;
 
