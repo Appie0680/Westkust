@@ -1,6 +1,6 @@
 import { Events, EmbedBuilder } from 'discord.js';
 
-// Opslag voor Woordenslang in geheugen
+// Globale Geheugenopslag
 if (!global.wordSnakeState) {
     global.wordSnakeState = {
         currentWord: 'slang',
@@ -12,7 +12,6 @@ if (!global.wordSnakeState) {
     };
 }
 
-// Opslag voor Telsysteem in geheugen
 if (!global.countingState) {
     global.countingState = {
         currentCount: 0,
@@ -21,17 +20,99 @@ if (!global.countingState) {
     };
 }
 
+if (!global.guessNumberState) {
+    global.guessNumberState = {
+        secretNumber: null,
+        isGuessed: true,
+        setByUserId: null,
+        attempts: 0
+    };
+}
+
 export default {
     name: Events.MessageCreate,
 
     async execute(message, client) {
-        // Sla botberichten en berichten buiten servers over
         if (message.author.bot || !message.guild) return;
 
         const channelName = message.channel.name.toLowerCase();
 
         // ==========================================================
-        // SYSTEEM 1: TELSYSTEME (#🔢〢count)
+        // GAME 1: GUESS THE NUMBER (#🔔〢guess-the-number)
+        // ==========================================================
+        const isGuessChannel = 
+            channelName === '🔔〢guess-the-number' ||
+            channelName === 'guess-the-number' ||
+            channelName.includes('guess-the-number');
+
+        if (isGuessChannel) {
+            const guessState = global.guessNumberState;
+            const content = message.content.trim();
+
+            if (content.startsWith('/') || content.startsWith('!')) return;
+
+            const guessedNumber = parseInt(content, 10);
+            if (isNaN(guessedNumber) || guessedNumber.toString() !== content) return;
+
+            if (guessState.isGuessed || guessState.secretNumber === null) {
+                const reply = await message.reply('⚠️ Er is momenteel geen actief geheim getal! Een beheerder moet eerst `/setgetal` uitvoeren.').catch(() => null);
+                setTimeout(() => {
+                    reply?.delete().catch(() => null);
+                    message.delete().catch(() => null);
+                }, 5000);
+                return;
+            }
+
+            guessState.attempts += 1;
+
+            // HOGER (Het geheime getal is HOGER dan wat ingevoerd werd)
+            if (guessedNumber < guessState.secretNumber) {
+                await message.react('⬆️').catch(() => null);
+                const reply = await message.reply(`⬆️ **Hoger!** Het gezochte getal is groter dan **${guessedNumber}**.`).catch(() => null);
+                setTimeout(() => {
+                    reply?.delete().catch(() => null);
+                }, 5000);
+                return;
+            }
+
+            // LAGER (Het geheime getal is LAGER dan wat ingevoerd werd)
+            if (guessedNumber > guessState.secretNumber) {
+                await message.react('⬇️').catch(() => null);
+                const reply = await message.reply(`⬇️ **Lager!** Het gezochte getal is kleiner dan **${guessedNumber}**.`).catch(() => null);
+                setTimeout(() => {
+                    reply?.delete().catch(() => null);
+                }, 5000);
+                return;
+            }
+
+            // --- 🎉 GEWONNEN! EXACT GERADEN ---
+            if (guessedNumber === guessState.secretNumber) {
+                guessState.isGuessed = true;
+
+                await message.react('🎉').catch(() => null);
+
+                const winEmbed = new EmbedBuilder()
+                    .setTitle('🎉 GEWONNEN! GETAL GERADEN!')
+                    .setColor('#00FF88')
+                    .setThumbnail(message.author.displayAvatarURL({ dynamic: true }))
+                    .setDescription(
+                        `🏆 **Gefeliciteerd <@${message.author.id}>!**\n\n` +
+                        `Je hebt het geheime getal **\`${guessState.secretNumber}\`** geraden in **${guessState.attempts} pogingen**!`
+                    )
+                    .setFooter({ text: 'Nexus Guess The Number Winner' })
+                    .setTimestamp();
+
+                await message.channel.send({
+                    content: `🎉 Gefeliciteerd <@${message.author.id}>! Je hebt het getal geraden!`,
+                    embeds: [winEmbed]
+                }).catch(() => null);
+
+                return;
+            }
+        }
+
+        // ==========================================================
+        // GAME 2: TELSYSTEME (#🔢〢count)
         // ==========================================================
         const isCountingChannel = 
             channelName === '🔢〢count' ||
@@ -42,20 +123,13 @@ export default {
             const countState = global.countingState;
             const content = message.content.trim();
 
-            // Sla commando's of niet-getallen over
             if (content.startsWith('/') || content.startsWith('!')) return;
 
-            // Probeer de invoer om te zetten naar een geheel getal
             const inputNumber = parseInt(content, 10);
-
-            // Als het geen getal is, negeer het of wis het
-            if (isNaN(inputNumber) || inputNumber.toString() !== content) {
-                return;
-            }
+            if (isNaN(inputNumber) || inputNumber.toString() !== content) return;
 
             const expectedNumber = countState.currentCount + 1;
 
-            // REGEL A: Niet 2 keer achter elkaar door dezelfde persoon
             if (countState.lastUserId === message.author.id) {
                 await message.react('❌').catch(() => null);
                 countState.currentCount = 0;
@@ -70,7 +144,6 @@ export default {
                 return;
             }
 
-            // REGEL B: Moet het exacte volgende getal zijn
             if (inputNumber !== expectedNumber) {
                 await message.react('❌').catch(() => null);
                 countState.currentCount = 0;
@@ -85,7 +158,6 @@ export default {
                 return;
             }
 
-            // --- ✅ GETAL IS GOED! ---
             countState.currentCount = expectedNumber;
             countState.lastUserId = message.author.id;
 
@@ -95,16 +167,14 @@ export default {
 
             await message.react('✅').catch(() => null);
 
-            // SPECIAL 1: BIJ GETAL 67
             if (countState.currentCount === 67) {
                 await message.reply('**SIXSEVENNN 🗣️🔥**').catch(() => null);
             }
 
-            // SPECIAL 2: BIJ GETAL 1000 (GEWONNEN!)
             if (countState.currentCount === 1000) {
                 await message.react('🏆').catch(() => null);
                 const winEmbed = new EmbedBuilder()
-                    .setTitle('🎉 TELSYS TEEM UITGESPEELD!')
+                    .setTitle('🎉 TELSYSTEME UITGESPEELD!')
                     .setDescription(`🏆 **Gefeliciteerd <@${message.author.id}>!**\n\nJe hebt het getal **1000** gehaald en het telsysteem compleet uitgespeeld! Legend! 🚀`)
                     .setColor('#00FF88')
                     .setTimestamp();
@@ -115,11 +185,11 @@ export default {
                 }).catch(() => null);
             }
 
-            return; // Beëindig hier voor het telkanaal
+            return;
         }
 
         // ==========================================================
-        // SYSTEEM 2: WOORDENSLANG (#🐍〢word-snake)
+        // GAME 3: WOORDENSLANG (#🐍〢word-snake)
         // ==========================================================
         const isSnakeChannel = 
             channelName === '🐍〢word-snake' ||
