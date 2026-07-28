@@ -2,15 +2,16 @@ import {
     Events, 
     EmbedBuilder, 
     ActionRowBuilder, 
-    StringSelectMenuBuilder,
+    StringSelectMenuBuilder, 
     StringSelectMenuOptionBuilder 
 } from 'discord.js';
 
-// --- GLOBALE DATA STORES ---
+// --- GLOBALE GEHEUGENSTORES ---
 if (!global.loggedPartnerLinks) global.loggedPartnerLinks = new Set();
 if (!global.userPartnerCounts) global.userPartnerCounts = new Map();
 if (!global.userPayoutChoices) global.userPayoutChoices = new Map();
 if (!global.partnerLeaderboardMessageId) global.partnerLeaderboardMessageId = null;
+if (!global.partnerStickyMessageId) global.partnerStickyMessageId = null;
 
 if (!global.payoutMethods) {
     global.payoutMethods = new Map([
@@ -20,27 +21,55 @@ if (!global.payoutMethods) {
     ]);
 }
 
-// Hulpfunctie om het leaderboard aan te maken/bij te werken in #📥〢partner-log
+if (!global.wordSnakeState) {
+    global.wordSnakeState = {
+        currentWord: 'slang',
+        lastLetter: 'g',
+        lastUserId: null,
+        usedWords: new Set(['slang']),
+        snakeLength: 1,
+        highScore: 1
+    };
+}
+
+if (!global.countingState) {
+    global.countingState = {
+        currentCount: 0,
+        lastUserId: null,
+        highScore: 0
+    };
+}
+
+if (!global.guessNumberState) {
+    global.guessNumberState = {
+        secretNumber: null,
+        isGuessed: true,
+        setByUserId: null,
+        attempts: 0
+    };
+}
+
+// --- HELPER FUNCTIE: PARTNER LEADERBOARD UPDATEN ---
 async function updatePartnerLeaderboard(client, guild) {
     try {
         const logChannel = guild.channels.cache.find(c => 
-            c.name === '📥〢partner-log' || 
-            c.name === 'partner-log' || 
-            c.name.includes('partner-log')
+            c.name.includes('partner-log') || 
+            c.name.includes('partner_log') || 
+            c.name.includes('partnerlog')
         );
 
         if (!logChannel) return;
 
-        // Leaderboard Beschrijving Opbouwen
         let leaderboardText = '';
-        if (global.userPartnerCounts.size === 0) {
-            leaderboardText = '*Er zijn nog geen partners geregistreerd.*';
+        if (!global.userPartnerCounts || global.userPartnerCounts.size === 0) {
+            leaderboardText = '*Nog geen actieve partners geregistreerd. Plaats een link in #🍀〢partners om te beginnen!*';
         } else {
             const sorted = Array.from(global.userPartnerCounts.entries())
                 .sort((a, b) => b[1] - a[1]);
 
             let rank = 1;
             for (const [userId, count] of sorted) {
+                if (count <= 0) continue;
                 const choiceKey = global.userPayoutChoices.get(userId) || 'robux';
                 const method = global.payoutMethods.get(choiceKey) || global.payoutMethods.get('robux');
                 
@@ -52,6 +81,10 @@ async function updatePartnerLeaderboard(client, guild) {
                 const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '👤';
                 leaderboardText += `${medal} <@${userId}> — **${count} partners** (\`${targetText}\` • ${method.name})\n`;
                 rank++;
+            }
+
+            if (!leaderboardText) {
+                leaderboardText = '*Nog geen actieve partners geregistreerd.*';
             }
         }
 
@@ -72,7 +105,6 @@ async function updatePartnerLeaderboard(client, guild) {
             .setFooter({ text: 'Selecteer hieronder jouw gewenste uitbetalingsmethode!' })
             .setTimestamp();
 
-        // SelectMenu bouwen voor de uitbetalingskeuze
         const options = [];
         for (const [key, m] of global.payoutMethods) {
             options.push(
@@ -90,7 +122,6 @@ async function updatePartnerLeaderboard(client, guild) {
 
         const row = new ActionRowBuilder().addComponents(selectMenu);
 
-        // Bestaand bericht bijwerken of nieuw bericht sturen
         if (global.partnerLeaderboardMessageId) {
             const oldMsg = await logChannel.messages.fetch(global.partnerLeaderboardMessageId).catch(() => null);
             if (oldMsg) {
@@ -128,41 +159,31 @@ export default {
             channelName.includes('partners');
 
         if (isPartnerChannel) {
-            // Regex om Discord invite links te herkennen
-            const discordInviteRegex = /(https?:\/\/)?(www\.)?(discord\.gg|discord\.me|discordapp\.com\/invite|discord\.com\/invite)\/([a-zA-Z0-0-]{2,32})/gi;
+            const discordInviteRegex = /(https?:\/\/)?(www\.)?(discord\.gg|discord\.me|discordapp\.com\/invite|discord\.com\/invite)\/([a-zA-Z0-9-]{2,32})/gi;
             const matches = message.content.match(discordInviteRegex);
 
-            // Alleen verwerken als er DAADWERKELIJK een invite link in staat
             if (matches && matches.length > 0) {
                 const inviteLink = matches[0].toLowerCase();
 
-                // DUBBELE LINK CHECK: Mag niet 2x geplaatst worden
                 if (global.loggedPartnerLinks.has(inviteLink)) {
                     await message.react('❌').catch(() => null);
                     const reply = await message.reply('⚠️ Deze partner-link is al eerder ingestuurd en telt niet dubbel mee!').catch(() => null);
-                    setTimeout(() => {
-                        reply?.delete().catch(() => null);
-                    }, 5000);
+                    setTimeout(() => reply?.delete().catch(() => null), 5000);
                     return;
                 }
 
-                // Sla de link op als verwerkt
                 global.loggedPartnerLinks.add(inviteLink);
                 await message.react('✅').catch(() => null);
 
-                // +1 Partner tellen voor de gebruiker
                 const currentCount = (global.userPartnerCounts.get(message.author.id) || 0) + 1;
                 global.userPartnerCounts.set(message.author.id, currentCount);
 
-                // Bepaal de gekozen uitbetalingsmethode van deze gebruiker
                 const choiceKey = global.userPayoutChoices.get(message.author.id) || 'robux';
                 const method = global.payoutMethods.get(choiceKey) || global.payoutMethods.get('robux');
 
                 const totalEarned = currentCount * method.rate;
 
-                // CHECK OF HET DOEL IS BEREIKT!
                 if (totalEarned >= method.target) {
-                    // Tag de gebruiker & stuur Swipe DM Notificatie
                     const winEmbed = new EmbedBuilder()
                         .setTitle('🎉 UITBETALINGS DOEL BEHAALD!')
                         .setColor('#00FF88')
@@ -180,15 +201,13 @@ export default {
                         embeds: [winEmbed]
                     }).catch(() => null);
 
-                    // Reset de teller van deze gebruiker voor de volgende ronde
                     global.userPartnerCounts.set(message.author.id, 0);
                 }
 
-                // Update direct het live leaderboard
                 await updatePartnerLeaderboard(client, message.guild);
             }
 
-            // STICKY STATEMENT ONDERAAN HET KANAAL HOUDEN
+            // STICKY MESSAGE AFHANDELING ONDERAAN HET KANAAL
             try {
                 if (global.partnerStickyMessageId) {
                     const oldSticky = await message.channel.messages.fetch(global.partnerStickyMessageId).catch(() => null);
@@ -199,7 +218,7 @@ export default {
                 const newSticky = await message.channel.send({ content: stickyText });
                 global.partnerStickyMessageId = newSticky.id;
             } catch (e) {
-                // Ignore sticky error
+                // Sla sticky fouten op de achtergrond stil over
             }
 
             return;
@@ -352,7 +371,7 @@ export default {
         // GAME 3: WOORDENSLANG (#🐍〢word-snake)
         // ==========================================================
         const isSnakeChannel = 
-            channelName === '🐍〢word-snake' ||
+            channelName === '🐍iword-snake' ||
             channelName === 'word-snake' ||
             channelName.includes('word-snake');
 
