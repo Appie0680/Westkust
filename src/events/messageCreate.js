@@ -21,14 +21,16 @@ if (!global.payoutMethods) {
     ]);
 }
 
+// Dynamische state
 if (!global.wordSnakeState) {
     global.wordSnakeState = {
-        currentWord: 'slang',
-        lastLetter: 'g',
+        currentWord: null,
+        lastLetter: null,
         lastUserId: null,
-        usedWords: new Set(['slang']),
-        snakeLength: 1,
-        highScore: 1
+        usedWords: new Set(),
+        snakeLength: 0,
+        highScore: 0,
+        initialized: false
     };
 }
 
@@ -36,7 +38,8 @@ if (!global.countingState) {
     global.countingState = {
         currentCount: 0,
         lastUserId: null,
-        highScore: 0
+        highScore: 0,
+        initialized: false
     };
 }
 
@@ -47,6 +50,78 @@ if (!global.guessNumberState) {
         setByUserId: null,
         attempts: 0
     };
+}
+
+// --- HELPER FUNCTIE: TELSYSTEME VOORKEUR/STAND AUTOMATISCH OPHALEN UIT CHAT ---
+async function ensureCountingState(channel) {
+    const state = global.countingState;
+    if (state.initialized) return;
+
+    try {
+        const messages = await channel.messages.fetch({ limit: 25 }).catch(() => null);
+        if (!messages) return;
+
+        // Zoek het meest recente geldige bericht van een gebruiker
+        for (const [id, msg] of messages) {
+            if (msg.author.bot) continue;
+            const num = parseInt(msg.content.trim(), 10);
+            
+            // Check of het een getal is en een groen vinkje heeft
+            const hasCheckMark = msg.reactions.cache.some(r => r.emoji.name === '✅');
+            if (!isNaN(num) && num.toString() === msg.content.trim() && (hasCheckMark || messages.size > 0)) {
+                state.currentCount = num;
+                state.lastUserId = msg.author.id;
+                state.initialized = true;
+                return;
+            }
+        }
+    } catch (e) {
+        // Fallback
+    }
+    state.initialized = true;
+}
+
+// --- HELPER FUNCTIE: WOORDENSLANG STAND AUTOMATISCH OPHALEN UIT CHAT ---
+async function ensureWordSnakeState(channel) {
+    const state = global.wordSnakeState;
+    if (state.initialized) return;
+
+    try {
+        const messages = await channel.messages.fetch({ limit: 50 }).catch(() => null);
+        if (!messages) return;
+
+        const validMessages = [];
+        for (const [id, msg] of messages) {
+            if (msg.author.bot) continue;
+            const word = msg.content.trim().toLowerCase();
+            const wordRegex = /^[a-zA-Záéíóúnñçäëïöü-]+$/;
+            
+            if (wordRegex.test(word) && !word.includes(' ') && word.length >= 3) {
+                validMessages.push({ word, authorId: msg.author.id, msg });
+            }
+        }
+
+        if (validMessages.length > 0) {
+            // De nieuwste staat bovenaan in array
+            const lastMsg = validMessages[0];
+            state.currentWord = lastMsg.word;
+            state.lastLetter = lastMsg.word.slice(-1);
+            state.lastUserId = lastMsg.authorId;
+            
+            validMessages.forEach(m => state.usedWords.add(m.word));
+            state.snakeLength = state.usedWords.size;
+            state.initialized = true;
+            return;
+        }
+    } catch (e) {
+        // Fallback
+    }
+
+    state.currentWord = 'slang';
+    state.lastLetter = 'g';
+    state.usedWords.add('slang');
+    state.snakeLength = 1;
+    state.initialized = true;
 }
 
 // --- HELPER FUNCTIE: PARTNER LEADERBOARD UPDATEN ---
@@ -153,10 +228,7 @@ export default {
         // ==========================================================
         // FEATURE: PARTNER SYSTEM IN #🍀〢partners
         // ==========================================================
-        const isPartnerChannel = 
-            channelName === '🍀〢partners' ||
-            channelName === 'partners' ||
-            channelName.includes('partners');
+        const isPartnerChannel = channelName.includes('partner') && !channelName.includes('log');
 
         if (isPartnerChannel) {
             const discordInviteRegex = /(https?:\/\/)?(www\.)?(discord\.gg|discord\.me|discordapp\.com\/invite|discord\.com\/invite)\/([a-zA-Z0-9-]{2,32})/gi;
@@ -218,7 +290,7 @@ export default {
                 const newSticky = await message.channel.send({ content: stickyText });
                 global.partnerStickyMessageId = newSticky.id;
             } catch (e) {
-                // Sla sticky fouten op de achtergrond stil over
+                // Sla sticky fouten stil over
             }
 
             return;
@@ -227,10 +299,7 @@ export default {
         // ==========================================================
         // GAME 1: GUESS THE NUMBER (#🔔〢guess-the-number)
         // ==========================================================
-        const isGuessChannel = 
-            channelName === '🔔〢guess-the-number' ||
-            channelName === 'guess-the-number' ||
-            channelName.includes('guess-the-number');
+        const isGuessChannel = channelName.includes('guess');
 
         if (isGuessChannel) {
             const guessState = global.guessNumberState || {};
@@ -293,13 +362,11 @@ export default {
         // ==========================================================
         // GAME 2: TELSYSTEME (#🔢〢count)
         // ==========================================================
-        const isCountingChannel = 
-            channelName === '🔢〢count' ||
-            channelName === 'count' ||
-            channelName.includes('count');
+        const isCountingChannel = channelName.includes('count');
 
         if (isCountingChannel) {
-            const countState = global.countingState || { currentCount: 0 };
+            await ensureCountingState(message.channel);
+            const countState = global.countingState;
             const content = message.content.trim();
 
             if (content.startsWith('/') || content.startsWith('!')) return;
@@ -370,13 +437,11 @@ export default {
         // ==========================================================
         // GAME 3: WOORDENSLANG (#🐍〢word-snake)
         // ==========================================================
-        const isSnakeChannel = 
-            channelName === '🐍iword-snake' ||
-            channelName === 'word-snake' ||
-            channelName.includes('word-snake');
+        const isSnakeChannel = channelName.includes('word-snake') || channelName.includes('snake');
 
         if (isSnakeChannel) {
-            const state = global.wordSnakeState || { currentWord: 'slang', lastLetter: 'g', usedWords: new Set(['slang']) };
+            await ensureWordSnakeState(message.channel);
+            const state = global.wordSnakeState;
             const inputWord = message.content.trim().toLowerCase();
 
             if (inputWord.startsWith('/') || inputWord.startsWith('!')) return;
