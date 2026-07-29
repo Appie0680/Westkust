@@ -2,6 +2,8 @@ import {
     Events, 
     EmbedBuilder, 
     ActionRowBuilder, 
+    ButtonBuilder, 
+    ButtonStyle,
     StringSelectMenuBuilder, 
     StringSelectMenuOptionBuilder 
 } from 'discord.js';
@@ -12,6 +14,8 @@ if (!global.userPartnerCounts) global.userPartnerCounts = new Map();
 if (!global.userPayoutChoices) global.userPayoutChoices = new Map();
 if (!global.partnerLeaderboardMessageId) global.partnerLeaderboardMessageId = null;
 if (!global.partnerStickyMessageId) global.partnerStickyMessageId = null;
+
+if (!global.userApplySessions) global.userApplySessions = new Map();
 
 if (!global.payoutMethods) {
     global.payoutMethods = new Map([
@@ -50,6 +54,22 @@ if (!global.guessNumberState) {
         setByUserId: null,
         attempts: 0
     };
+}
+
+// Vragenlijst voor Marketing
+if (!global.marketingQuestions) {
+    global.marketingQuestions = [
+        "Wat is jouw volledige In-Game / Karakter Naam?",
+        "Wat is jouw Leeftijd?",
+        "1/8. Vertel kort iets over jezelf.",
+        "2/8. Waarom wil je in het marketing team werken?",
+        "3/8. Waarom wil je specifiek bij Nexus Community werken?",
+        "4/8. Wat zijn jouw sterke en zwakke punten?",
+        "5/8. Hoe ga je om met opbouwende kritiek en feedback?",
+        "6/8. Waarom moeten wij juist JOU aannemen?",
+        "7/8. Wanneer en hoeveel ben je beschikbaar om te beginnen? (bijv. direct, over 2 weken)",
+        "8/8. Heb je tot slot nog vragen aan ons?"
+    ];
 }
 
 // --- HELPER FUNCTIE: TELSYSTEME STAND DYNAMISCH OPHALEN ---
@@ -127,7 +147,6 @@ async function updatePartnerLeaderboard(client, guild) {
 
         if (!logChannel) return;
 
-        // Leaderboard Opbouwen
         let leaderboardText = '';
         if (!global.userPartnerCounts || global.userPartnerCounts.size === 0) {
             leaderboardText = '*`Nog geen actieve partners geregistreerd.`*\n*Plaats een link in #🍀〢partners om te beginnen!*';
@@ -159,10 +178,9 @@ async function updatePartnerLeaderboard(client, guild) {
             }
         }
 
-        // ULTRA LUXE EXCLUSIEVE EMBED
         const embed = new EmbedBuilder()
             .setTitle('💎 NEXUS MARKETING HUB • PARTNER LEADERBOARD')
-            .setColor('#00F0FF') // Neon Cyan
+            .setColor('#00F0FF')
             .setThumbnail(guild.iconURL({ dynamic: true }))
             .setDescription(
                 `>>> **Welkom bij het officiële Nexus Partner & Marketing Dashboard!**\n` +
@@ -194,7 +212,6 @@ async function updatePartnerLeaderboard(client, guild) {
 
         const row = new ActionRowBuilder().addComponents(selectMenu);
 
-        // ALWAYS SEARCH CHANNEL FOR EXISTING BOT MESSAGE FIRST TO PREVENT MULTIPLE MESSAGES!
         let existingMsg = null;
         if (global.partnerLeaderboardMessageId) {
             existingMsg = await logChannel.messages.fetch(global.partnerLeaderboardMessageId).catch(() => null);
@@ -233,12 +250,102 @@ export default {
     name: Events.MessageCreate,
 
     async execute(message, client) {
-        if (message.author.bot || !message.guild) return;
+        if (message.author.bot) return;
+
+        // ==========================================================
+        // FEATURE 1: APPY-STYLE DM SOLLICITATIE BEANTWOORDING
+        // ==========================================================
+        if (!message.guild) { // DM BERICHT MET DE BOT
+            const session = global.userApplySessions.get(message.author.id);
+            if (!session) return;
+
+            const questions = global.marketingQuestions || [];
+            session.answers.push(message.content.trim());
+            session.step += 1;
+
+            // Volgende vraag sturen
+            if (session.step < questions.length) {
+                const nextQuestionEmbed = new EmbedBuilder()
+                    .setTitle(`Pechhulp / Marketing Sollicitatie (${session.step + 1}/${questions.length})`)
+                    .setColor('#00F0FF')
+                    .setDescription(`**${questions[session.step]}**\n\n*To answer this question, please send a message with your response.*`);
+
+                await message.channel.send({ embeds: [nextQuestionEmbed] }).catch(() => null);
+                return;
+            }
+
+            // Alle vragen beantwoord!
+            const doneEmbed = new EmbedBuilder()
+                .setTitle('🎉 Sollicitatie Voltooid!')
+                .setColor('#00FF88')
+                .setDescription(
+                    `Jouw sollicitatie is **succesvol verstuurd naar het Beheer van Nexus Community**!\n\n` +
+                    `Je ontvangt vanzelf een bericht in DM zodra jouw sollicitatie is beoordeeld.`
+                );
+
+            await message.channel.send({ embeds: [doneEmbed] }).catch(() => null);
+
+            // Stuur resultaat naar #📑〢application-results
+            try {
+                const guild = client.guilds.cache.get(session.guildId) || client.guilds.cache.first();
+                if (guild) {
+                    const resultChannel = guild.channels.cache.find(c => 
+                        c.name.includes('application-results') || 
+                        c.name.includes('application_results') ||
+                        c.name.includes('sollicitatie-resultaten') ||
+                        c.name.includes('results')
+                    );
+
+                    if (resultChannel) {
+                        const resultEmbed = new EmbedBuilder()
+                            .setTitle(`📑 Nieuwe Sollicitatie Marketing • ${session.answers[0] || message.author.username}`)
+                            .setColor('#00F0FF')
+                            .setThumbnail(message.author.displayAvatarURL({ dynamic: true }))
+                            .setDescription(
+                                `>>> **👤 Sollicitant:** <@${message.author.id}> (\`${message.author.tag}\`)\n` +
+                                `**📛 Naam:** \`${session.answers[0] || 'N.v.t.'}\`\n` +
+                                `**🎂 Leeftijd:** \`${session.answers[1] || 'N.v.t.'}\`\n` +
+                                `**📊 Status:** \`⏳ In Behandeling\``
+                            )
+                            .setTimestamp();
+
+                        for (let i = 2; i < questions.length; i++) {
+                            resultEmbed.addFields({
+                                name: `❓ ${questions[i]}`,
+                                value: session.answers[i] ? `> ${session.answers[i]}` : '> *Geen antwoord*'
+                            });
+                        }
+
+                        const acceptBtn = new ButtonBuilder()
+                            .setCustomId(`accept_app_${message.author.id}`)
+                            .setLabel('✅ Goedgekeurd')
+                            .setStyle(ButtonStyle.Success);
+
+                        const denyBtn = new ButtonBuilder()
+                            .setCustomId(`deny_app_${message.author.id}`)
+                            .setLabel('❌ Afgekeurd')
+                            .setStyle(ButtonStyle.Danger);
+
+                        const actionRow = new ActionRowBuilder().addComponents(acceptBtn, denyBtn);
+
+                        await resultChannel.send({ embeds: [resultEmbed], components: [actionRow] }).catch(() => null);
+                    }
+                }
+            } catch (err) {
+                console.error('❌ Fout bij doorsturen sollicitatie resultaat:', err);
+            }
+
+            global.userApplySessions.delete(message.author.id);
+            return;
+        }
+
+        // Vanaf hier alleen berichten IN een guild/server
+        if (!message.guild) return;
 
         const contentTrimmed = message.content.trim().toLowerCase();
 
         // ==========================================================
-        // FEATURE: !pb COMMANDO (LUXE PARTNER BERICHT REPLIER)
+        // FEATURE 2: !pb COMMANDO (PARTNER BERICHT REPLIER)
         // ==========================================================
         if (contentTrimmed === '!pb' || contentTrimmed.startsWith('!pb ') || contentTrimmed === '!partnerbericht') {
             
@@ -265,7 +372,7 @@ export default {
 
                 const partnerChannel = message.guild.channels.cache.find(c => 
                     (c.name.includes('partner') && !c.name.includes('log')) ||
-                    c.name === '🍀识partners' ||
+                    c.name === '🍀〢partners' ||
                     c.name === 'partners'
                 );
 
@@ -283,7 +390,6 @@ export default {
                 const sentMsg = await partnerChannel.send(payload).catch(() => null);
 
                 if (sentMsg) {
-                    // LUXE BEVESTIGING IN TICKET
                     const successEmbed = new EmbedBuilder()
                         .setTitle('✨ NEXUS PARTNER HUB • BERICHT VERWERKT')
                         .setColor('#00F0FF')
@@ -293,15 +399,11 @@ export default {
                             `**🛡️ Uitgevoerd door:** <@${message.author.id}>\n` +
                             `**📈 Voortgang:** \`+1 Partner bijgeschreven op leaderboard!\``
                         )
-                        .setFooter({ 
-                            text: 'Nexus Community • Official Partner System',
-                            iconURL: message.author.displayAvatarURL({ dynamic: true }) 
-                        })
+                        .setFooter({ text: 'Nexus Community • Official Partner System', iconURL: message.author.displayAvatarURL({ dynamic: true }) })
                         .setTimestamp();
 
                     await message.reply({ embeds: [successEmbed] }).catch(() => null);
 
-                    // NEXUS PROMO BERICHT IN TICKET
                     const nexusPartnerPromo = 
                         `# 🚀 We’re Back!\n` +
                         `# Nexus Community \n\n` +
@@ -317,7 +419,6 @@ export default {
 
                     await message.channel.send({ content: nexusPartnerPromo }).catch(() => null);
 
-                    // SCORE EN LEADERBOARD VERWERKEN
                     const discordInviteRegex = /(https?:\/\/)?(www\.)?(discord\.gg|discord\.me|discordapp\.com\/invite|discord\.com\/invite)\/([a-zA-Z0-9-]{2,32})/gi;
                     const matches = targetMessage.content ? targetMessage.content.match(discordInviteRegex) : null;
 
@@ -325,15 +426,12 @@ export default {
                         const inviteLink = matches[0].toLowerCase();
                         if (!global.loggedPartnerLinks.has(inviteLink)) {
                             global.loggedPartnerLinks.add(inviteLink);
-
                             const currentCount = (global.userPartnerCounts.get(message.author.id) || 0) + 1;
                             global.userPartnerCounts.set(message.author.id, currentCount);
-
                             await updatePartnerLeaderboard(client, message.guild);
                         }
                     }
 
-                    // STICKY MESSAGE IN PARTNERKANAAL
                     try {
                         if (global.partnerStickyMessageId) {
                             const oldSticky = await partnerChannel.messages.fetch(global.partnerStickyMessageId).catch(() => null);
@@ -358,7 +456,7 @@ export default {
         const channelName = message.channel.name.toLowerCase();
 
         // ==========================================================
-        // FEATURE: PARTNER SYSTEM DIRECT IN #🍀〢partners
+        // FEATURE 3: PARTNER SYSTEM DIRECT IN #🍀〢partners
         // ==========================================================
         const isPartnerChannel = channelName.includes('partner') && !channelName.includes('log');
 
@@ -411,7 +509,6 @@ export default {
                 await updatePartnerLeaderboard(client, message.guild);
             }
 
-            // STICKY MESSAGE
             try {
                 if (global.partnerStickyMessageId) {
                     const oldSticky = await message.channel.messages.fetch(global.partnerStickyMessageId).catch(() => null);
