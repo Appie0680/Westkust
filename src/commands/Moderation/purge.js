@@ -1,84 +1,98 @@
-import { SlashCommandBuilder, PermissionFlagsBits, PermissionsBitField, ChannelType, MessageFlags } from 'discord.js';
-import { createEmbed, successEmbed } from '../../utils/embeds.js';
-import { logEvent } from '../../utils/moderation.js';
-import { logger } from '../../utils/logger.js';
-import { getColor } from '../../config/bot.js';
+import { 
+    SlashCommandBuilder, 
+    PermissionFlagsBits, 
+    EmbedBuilder 
+} from 'discord.js';
 
-import { InteractionHelper } from '../../utils/interactionHelper.js';
-import { replyUserError, ErrorTypes } from '../../utils/errorHandler.js';
+// Herbruikbare purge logica voor zowel Slash jako Prefix commando (?purge)
+export async function executePurge(channel, member, amount, replyTarget = null) {
+    try {
+        // Permissie check
+        if (!member.permissions.has(PermissionFlagsBits.ManageMessages)) {
+            const errEmbed = new EmbedBuilder()
+                .setTitle('🚫 Geen Toegang')
+                .setColor('#FF0033')
+                .setDescription('Je hebt de machtiging `Berichten Beheren` nodig om dit commando uit te voeren.');
+            
+            if (replyTarget) return replyTarget.reply({ embeds: [errEmbed], ephemeral: true }).catch(() => null);
+            return channel.send({ embeds: [errEmbed] }).then(m => setTimeout(() => m.delete().catch(() => null), 5000));
+        }
+
+        // Limiet controle (max 100 berichten per keer vanwege Discord API)
+        const fetchAmount = Math.min(Math.max(amount, 1), 100);
+
+        // Berichten ophalen
+        const fetchedMessages = await channel.messages.fetch({ limit: fetchAmount }).catch(() => null);
+
+        if (!fetchedMessages || fetchedMessages.size === 0) {
+            const emptyEmbed = new EmbedBuilder()
+                .setTitle('⚠️ Geen Berichten Gevonden')
+                .setColor('#FF9900')
+                .setDescription('Er konden geen berichten worden gevonden om te verwijderen.');
+
+            if (replyTarget) return replyTarget.reply({ embeds: [emptyEmbed], ephemeral: true }).catch(() => null);
+            return channel.send({ embeds: [emptyEmbed] }).then(m => setTimeout(() => m.delete().catch(() => null), 5000));
+        }
+
+        // Tel hoeveel bijlagen/foto's erbij zaten
+        let attachmentCount = 0;
+        fetchedMessages.forEach(msg => {
+            if (msg.attachments && msg.attachments.size > 0) {
+                attachmentCount += msg.attachments.size;
+            }
+        });
+
+        // Verwijder de berichten via Bulk Delete
+        const deleted = await channel.bulkDelete(fetchedMessages, true).catch(err => {
+            console.error('❌ Bulk delete fout:', err);
+            return null;
+        });
+
+        const deletedCount = deleted ? deleted.size : 0;
+
+        // Luxe succes embed
+        const successEmbed = new EmbedBuilder()
+            .setTitle('🧹 Kanaal Opgeschoond')
+            .setColor('#00F0FF')
+            .setThumbnail(member.guild.iconURL({ dynamic: true }))
+            .setDescription(
+                `>>> **🗑️ Verwijderde Berichten:** \`${deletedCount}\`\n` +
+                `**🖼️ Bijlagen / Foto's:** \`${attachmentCount}\`\n` +
+                `**🛡️ Uitgevoerd door:** <@${member.id}>`
+            )
+            .setFooter({ text: 'Dit bericht verdwijnt automatisch over 5 seconden...' })
+            .setTimestamp();
+
+        if (replyTarget && replyTarget.replied === false) {
+            await replyTarget.reply({ embeds: [successEmbed], ephemeral: true }).catch(() => null);
+        } else {
+            const statusMsg = await channel.send({ embeds: [successEmbed] }).catch(() => null);
+            if (statusMsg) {
+                setTimeout(() => statusMsg.delete().catch(() => null), 5000);
+            }
+        }
+
+    } catch (error) {
+        console.error('❌ Fout bij uitvoeren van Purge:', error);
+    }
+}
+
 export default {
     data: new SlashCommandBuilder()
-    .setName("purge")
-    .setDescription("Delete a specific amount of messages")
-    .addIntegerOption((option) =>
-      option
-        .setName("amount")
-        .setDescription("Number of messages (1-100)")
-        .setRequired(true),
-    )
-.setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
-  category: "moderation",
-  abuseProtection: { maxAttempts: 5, windowMs: 60_000 },
+        .setName('purge')
+        .setDescription('Verwijder snel een aantal berichten en bijlagen uit het kanaal (Beheer)')
+        .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
+        .addIntegerOption(option =>
+            option.setName('aantal')
+                .setDescription('Het aantal berichten dat verwijderd moet worden (1 - 100)')
+                .setRequired(true)
+                .setMinValue(1)
+                .setMaxValue(100)
+        ),
 
-  async execute(interaction, config, client) {
-    const deferSuccess = await InteractionHelper.safeDefer(interaction, {
-      flags: MessageFlags.Ephemeral,
-    });
-    if (!deferSuccess) {
-      logger.warn(`Purge interaction defer failed`, {
-        userId: interaction.user.id,
-        guildId: interaction.guildId,
-        commandName: 'purge'
-      });
-      return;
+    async execute(interaction) {
+        const amount = interaction.options.getInteger('aantal');
+        await executePurge(interaction.channel, interaction.member, amount, interaction);
     }
-
-    const amount = interaction.options.getInteger("amount");
-    const channel = interaction.channel;
-
-    if (amount < 1 || amount > 100)
-      return await replyUserError(interaction, { type: ErrorTypes.VALIDATION, message: 'Please specify a number between 1 and 100.' });
-
-    try {
-      const fetched = await channel.messages.fetch({ limit: amount });
-      const deleted = await channel.bulkDelete(fetched, true);
-      const deletedCount = deleted.size;
-
-      await logEvent({
-        client,
-        guild: interaction.guild,
-        event: {
-          action: "Messages Purged",
-          target: `${channel} (${deletedCount} messages)`,
-          executor: `${interaction.user.tag} (${interaction.user.id})`,
-          reason: `Deleted ${deletedCount} messages`,
-          metadata: {
-            channelId: channel.id,
-            messageCount: deletedCount,
-            requestedAmount: amount,
-            moderatorId: interaction.user.id
-          }
-        }
-      });
-
-      await InteractionHelper.safeEditReply(interaction, {
-        embeds: [
-          successEmbed(
-            "Messages Purged",
-            `Deleted ${deletedCount} messages in ${channel}.`,
-          ),
-        ],
-        flags: MessageFlags.Ephemeral,
-      });
-
-      setTimeout(() => {
-        interaction.deleteReply().catch(err => 
-          logger.debug('Failed to auto-delete purge response:', err)
-        );
-      }, 3000);
-    } catch (error) {
-      logger.error('Purge command error:', error);
-      await replyUserError(interaction, { type: ErrorTypes.UNKNOWN, message: 'An unexpected error occurred during message deletion. Note: Messages older than 14 days cannot be bulk deleted.' });
-    }
-  }
 };
+
