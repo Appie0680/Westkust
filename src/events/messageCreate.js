@@ -56,19 +56,19 @@ if (!global.guessNumberState) {
     };
 }
 
-// Vragenlijst voor Marketing
+// Vragenlijst voor Marketing (Exact 10 schone vragen)
 if (!global.marketingQuestions) {
     global.marketingQuestions = [
-        "Wat is jouw volledige In-Game / Karakter Naam?",
+        "Wat is jouw Naam?",
         "Wat is jouw Leeftijd?",
-        "1/8. Vertel kort iets over jezelf.",
-        "2/8. Waarom wil je in het marketing team werken?",
-        "3/8. Waarom wil je specifiek bij Nexus Community werken?",
-        "4/8. Wat zijn jouw sterke en zwakke punten?",
-        "5/8. Hoe ga je om met opbouwende kritiek en feedback?",
-        "6/8. Waarom moeten wij juist JOU aannemen?",
-        "7/8. Wanneer en hoeveel ben je beschikbaar om te beginnen? (bijv. direct, over 2 weken)",
-        "8/8. Heb je tot slot nog vragen aan ons?"
+        "Vertel kort iets over jezelf.",
+        "Waarom wil je in het marketing team werken?",
+        "Waarom wil je bij Nexus Community werken?",
+        "Wat zijn jouw sterke en zwakke punten?",
+        "Hoe ga je om met feedback?",
+        "Waarom moeten wij jou aannemen?",
+        "Wanneer ben je beschikbaar om te beginnen? (Bijvoorbeeld: over 2 weken)",
+        "Heb je tot slot nog vragen aan ons?"
     ];
 }
 
@@ -136,7 +136,7 @@ async function ensureWordSnakeState(channel) {
     state.initialized = true;
 }
 
-// --- HELPER FUNCTIE: PARTNER LEADERBOARD UPDATEN (ALTIJD IN 1 VAST BERICHT) ---
+// --- HELPER FUNCTIE: PARTNER LEADERBOARD UPDATEN ---
 async function updatePartnerLeaderboard(client, guild) {
     try {
         const logChannel = guild.channels.cache.find(c => 
@@ -149,7 +149,7 @@ async function updatePartnerLeaderboard(client, guild) {
 
         let leaderboardText = '';
         if (!global.userPartnerCounts || global.userPartnerCounts.size === 0) {
-            leaderboardText = '*`Nog geen actieve partners geregistreerd.`*\n*Plaats een link in #🍀〢partners om te beginnen!*';
+            leaderboardText = '*`Nog geen actieve partners geregistreerd.`*\n*Plaats een link in #🍀' + '〢partners om te beginnen!*';
         } else {
             const sorted = Array.from(global.userPartnerCounts.entries())
                 .filter(([_, count]) => count > 0)
@@ -266,9 +266,9 @@ export default {
             // Volgende vraag sturen
             if (session.step < questions.length) {
                 const nextQuestionEmbed = new EmbedBuilder()
-                    .setTitle(`Pechhulp / Marketing Sollicitatie (${session.step + 1}/${questions.length})`)
+                    .setTitle(`Nexus Community • Marketing Sollicitatie (${session.step + 1}/${questions.length})`)
                     .setColor('#00F0FF')
-                    .setDescription(`**${questions[session.step]}**\n\n*To answer this question, please send a message with your response.*`);
+                    .setDescription(`**${session.step + 1}. ${questions[session.step]}**\n\n*💬 Stuur een bericht in deze DM met jouw antwoord.*`);
 
                 await message.channel.send({ embeds: [nextQuestionEmbed] }).catch(() => null);
                 return;
@@ -279,7 +279,7 @@ export default {
                 .setTitle('🎉 Sollicitatie Voltooid!')
                 .setColor('#00FF88')
                 .setDescription(
-                    `Jouw sollicitatie is **succesvol verstuurd naar het Beheer van Nexus Community**!\n\n` +
+                    `Jouw sollicitatie voor het **Marketing Team** is **succesvol verstuurd naar het Beheer van Nexus Community**!\n\n` +
                     `Je ontvangt vanzelf een bericht in DM zodra jouw sollicitatie is beoordeeld.`
                 );
 
@@ -372,12 +372,12 @@ export default {
 
                 const partnerChannel = message.guild.channels.cache.find(c => 
                     (c.name.includes('partner') && !c.name.includes('log')) ||
-                    c.name === '🍀〢partners' ||
+                    c.name === '🍀' + '〢partners' ||
                     c.name === 'partners'
                 );
 
                 if (!partnerChannel) {
-                    return message.reply({ content: '❌ Het partnerkanaal (`#🍀〢partners`) kon niet worden gevonden!' }).catch(() => null);
+                    return message.reply({ content: '❌ Het partnerkanaal (`#🍀' + '〢partners`) kon niet worden gevonden!' }).catch(() => null);
                 }
 
                 const payload = {};
@@ -511,12 +511,12 @@ export default {
 
             try {
                 if (global.partnerStickyMessageId) {
-                    const oldSticky = await message.channel.messages.fetch(global.partnerStickyMessageId).catch(() => null);
+                    const oldSticky = await partnerChannel.messages.fetch(global.partnerStickyMessageId).catch(() => null);
                     if (oldSticky) await oldSticky.delete().catch(() => null);
                 }
 
                 const stickyText = `# We are against Scam, negative and leak servers. So we don't partner with this either`;
-                const newSticky = await message.channel.send({ content: stickyText });
+                const newSticky = await partnerChannel.send({ content: stickyText });
                 global.partnerStickyMessageId = newSticky.id;
             } catch (e) {}
 
