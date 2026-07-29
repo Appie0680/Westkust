@@ -21,7 +21,7 @@ if (!global.payoutMethods) {
     ]);
 }
 
-// Dynamische state
+// Dynamische state voor minigames
 if (!global.wordSnakeState) {
     global.wordSnakeState = {
         currentWord: null,
@@ -116,7 +116,7 @@ async function ensureWordSnakeState(channel) {
     state.initialized = true;
 }
 
-// --- HELPER FUNCTIE: PARTNER LEADERBOARD UPDATEN ---
+// --- HELPER FUNCTIE: PARTNER LEADERBOARD UPDATEN (ALTIJD IN 1 VAST BERICHT) ---
 async function updatePartnerLeaderboard(client, guild) {
     try {
         const logChannel = guild.channels.cache.find(c => 
@@ -127,49 +127,54 @@ async function updatePartnerLeaderboard(client, guild) {
 
         if (!logChannel) return;
 
+        // Leaderboard Opbouwen
         let leaderboardText = '';
         if (!global.userPartnerCounts || global.userPartnerCounts.size === 0) {
-            leaderboardText = '*Nog geen actieve partners geregistreerd. Plaats een link in #🍀〢partners om te beginnen!*';
+            leaderboardText = '*`Nog geen actieve partners geregistreerd.`*\n*Plaats een link in #🍀〢partners om te beginnen!*';
         } else {
             const sorted = Array.from(global.userPartnerCounts.entries())
+                .filter(([_, count]) => count > 0)
                 .sort((a, b) => b[1] - a[1]);
 
-            let rank = 1;
-            for (const [userId, count] of sorted) {
-                if (count <= 0) continue;
-                const choiceKey = global.userPayoutChoices.get(userId) || 'robux';
-                const method = global.payoutMethods.get(choiceKey) || global.payoutMethods.get('robux');
-                
-                const earned = count * method.rate;
-                const targetText = method.unit === '€' 
-                    ? `€${earned.toFixed(2)} / €${method.target.toFixed(2)}` 
-                    : `${earned} / ${method.target} ${method.unit}`;
+            if (sorted.length === 0) {
+                leaderboardText = '*`Nog geen actieve partners geregistreerd.`*';
+            } else {
+                let rank = 1;
+                for (const [userId, count] of sorted) {
+                    const choiceKey = global.userPayoutChoices.get(userId) || 'robux';
+                    const method = global.payoutMethods.get(choiceKey) || global.payoutMethods.get('robux');
+                    
+                    const earned = count * method.rate;
+                    const percent = Math.min(100, Math.round((earned / method.target) * 100));
+                    
+                    const earnedStr = method.unit === '€' ? `€ ${earned.toFixed(2)}` : `${earned} ${method.unit}`;
+                    const targetStr = method.unit === '€' ? `€ ${method.target.toFixed(2)}` : `${method.target} ${method.unit}`;
 
-                const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '👤';
-                leaderboardText += `${medal} <@${userId}> — **${count} partners** (\`${targetText}\` • ${method.name})\n`;
-                rank++;
-            }
-
-            if (!leaderboardText) {
-                leaderboardText = '*Nog geen actieve partners geregistreerd.*';
+                    const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '👤';
+                    
+                    leaderboardText += `${medal} <@${userId}>\n` +
+                        `└ 📊 **${count} Partners** • \`${earnedStr} / ${targetStr}\` (\`${percent}%\` • ${method.name})\n\n`;
+                    rank++;
+                }
             }
         }
 
+        // ULTRA LUXE EXCLUSIEVE EMBED
         const embed = new EmbedBuilder()
-            .setTitle('📊 Nexus Partner Leaderboard & Uitbetalingen')
-            .setColor('#00F0FF')
+            .setTitle('💎 NEXUS MARKETING HUB • PARTNER LEADERBOARD')
+            .setColor('#00F0FF') // Neon Cyan
             .setThumbnail(guild.iconURL({ dynamic: true }))
             .setDescription(
-                `Hieronder zie je de actieve uitbetalingsvoortgang van ons marketing team!\n\n` +
-                `**📜 Uitbetalingsschema:**\n` +
-                `• 🪙 **Robux:** 10 Robux / partner (Doel: 800 Robux)\n` +
-                `• 🪙 **Springbank Coins:** 83 Coins / partner (Doel: 500 Coins)\n` +
-                `• 💶 **Geld:** €0,12 / partner (Doel: €10,00)\n\n` +
-                `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-                `🏆 **Huidige Stand:**\n${leaderboardText}\n` +
-                `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
+                `>>> **Welkom bij het officiële Nexus Partner & Marketing Dashboard!**\n` +
+                `Plaats partnerlinks in het partnerkanaal en verdien direct punten voor jouw uitbetalingsdoel!\n\n` +
+                `💳 **Huidige Uitbetalingskoersen:**\n` +
+                `• 🪙 **Robux:** \`10 Robux / partner\` *(Doel: 800 Robux)*\n` +
+                `• 🪙 **Springbank Coins:** \`83 Coins / partner\` *(Doel: 500 Coins)*\n` +
+                `• 💶 **Geld (€):** \`€ 0,12 / partner\` *(Doel: € 10,00)*\n\n` +
+                `🏆 **Live Team Ranglijst:**\n` +
+                `${leaderboardText}`
             )
-            .setFooter({ text: 'Selecteer hieronder jouw gewenste uitbetalingsmethode!' })
+            .setFooter({ text: '⚙️ Kies hieronder jouw gewenste uitbetalingsmethode • Nexus Hub', iconURL: guild.iconURL({ dynamic: true }) })
             .setTimestamp();
 
         const options = [];
@@ -178,28 +183,43 @@ async function updatePartnerLeaderboard(client, guild) {
                 new StringSelectMenuOptionBuilder()
                     .setLabel(m.name)
                     .setValue(key)
-                    .setDescription(`${m.rate} ${m.unit} per partner (Doel: ${m.target} ${m.unit})`)
+                    .setDescription(`${m.rate} ${m.unit}/partner • Doel: ${m.target} ${m.unit}`)
             );
         }
 
         const selectMenu = new StringSelectMenuBuilder()
             .setCustomId('select_payout_method')
-            .setPlaceholder('Kies jouw uitbetalingsmethode...')
+            .setPlaceholder('⚙️ Kies of wijzig jouw uitbetalingsmethode...')
             .addOptions(options);
 
         const row = new ActionRowBuilder().addComponents(selectMenu);
 
+        // ALWAYS SEARCH CHANNEL FOR EXISTING BOT MESSAGE FIRST TO PREVENT MULTIPLE MESSAGES!
+        let existingMsg = null;
         if (global.partnerLeaderboardMessageId) {
-            const oldMsg = await logChannel.messages.fetch(global.partnerLeaderboardMessageId).catch(() => null);
-            if (oldMsg) {
-                await oldMsg.edit({ embeds: [embed], components: [row] }).catch(() => null);
-                return;
+            existingMsg = await logChannel.messages.fetch(global.partnerLeaderboardMessageId).catch(() => null);
+        }
+
+        if (!existingMsg) {
+            const fetched = await logChannel.messages.fetch({ limit: 20 }).catch(() => null);
+            if (fetched) {
+                existingMsg = fetched.find(m => 
+                    m.author.id === client.user.id && 
+                    m.embeds.length > 0 && 
+                    m.embeds[0].title && 
+                    m.embeds[0].title.includes('PARTNER LEADERBOARD')
+                );
             }
         }
 
-        const newMsg = await logChannel.send({ embeds: [embed], components: [row] }).catch(() => null);
-        if (newMsg) {
-            global.partnerLeaderboardMessageId = newMsg.id;
+        if (existingMsg) {
+            global.partnerLeaderboardMessageId = existingMsg.id;
+            await existingMsg.edit({ embeds: [embed], components: [row] }).catch(() => null);
+        } else {
+            const newMsg = await logChannel.send({ embeds: [embed], components: [row] }).catch(() => null);
+            if (newMsg) {
+                global.partnerLeaderboardMessageId = newMsg.id;
+            }
         }
 
     } catch (err) {
@@ -218,38 +238,41 @@ export default {
         const contentTrimmed = message.content.trim().toLowerCase();
 
         // ==========================================================
-        // FEATURE: !pb COMMANDO (PARTNER BERICHT REPLIER)
+        // FEATURE: !pb COMMANDO (LUXE PARTNER BERICHT REPLIER)
         // ==========================================================
         if (contentTrimmed === '!pb' || contentTrimmed.startsWith('!pb ') || contentTrimmed === '!partnerbericht') {
-            // Check of het bericht een reply is op een ander bericht
+            
             if (!message.reference || !message.reference.messageId) {
-                const errReply = await message.reply('⚠️ **Gebruik:** Reageer (reply) op het partnerbericht dat je wilt doorsturen en typ `!pb`.').catch(() => null);
+                const warnEmbed = new EmbedBuilder()
+                    .setTitle('⚠️ Partner Bericht Instructie')
+                    .setColor('#FF9900')
+                    .setDescription('Reageer (**reply**) op het partnerbericht dat je wilt doorsturen en typ simpelweg `!pb`.')
+                    .setFooter({ text: 'Nexus Partner System' });
+
+                const errReply = await message.reply({ embeds: [warnEmbed] }).catch(() => null);
                 setTimeout(() => {
                     errReply?.delete().catch(() => null);
                     message.delete().catch(() => null);
-                }, 5000);
+                }, 6000);
                 return;
             }
 
             try {
-                // Haal het originele bericht op waar op is gereageerd
                 const targetMessage = await message.channel.messages.fetch(message.reference.messageId).catch(() => null);
                 if (!targetMessage) {
-                    return message.reply('❌ Kon het originele bericht niet ophalen.').catch(() => null);
+                    return message.reply({ content: '❌ Kon het originele partnerbericht niet ophalen.' }).catch(() => null);
                 }
 
-                // Zoek het partner kanaal (#🍀〢partners)
                 const partnerChannel = message.guild.channels.cache.find(c => 
                     (c.name.includes('partner') && !c.name.includes('log')) ||
-                    c.name === '🍀〢partners' ||
+                    c.name === '🍀识partners' ||
                     c.name === 'partners'
                 );
 
                 if (!partnerChannel) {
-                    return message.reply('❌ Het partnerkanaal (`#🍀〢partners`) kon niet worden gevonden!').catch(() => null);
+                    return message.reply({ content: '❌ Het partnerkanaal (`#🍀〢partners`) kon niet worden gevonden!' }).catch(() => null);
                 }
 
-                // Bouw het te verzenden pakket (tekst, embeds en eventuele bijlagen/afbeeldingen)
                 const payload = {};
                 if (targetMessage.content) payload.content = targetMessage.content;
                 if (targetMessage.embeds && targetMessage.embeds.length > 0) payload.embeds = targetMessage.embeds;
@@ -257,30 +280,44 @@ export default {
                     payload.files = Array.from(targetMessage.attachments.values()).map(a => a.url);
                 }
 
-                // Stuur door naar het partnerkanaal
                 const sentMsg = await partnerChannel.send(payload).catch(() => null);
 
                 if (sentMsg) {
-                    // 1. BEVESTIGING IN HET TICKETKANAAL
-                    await message.reply('✅ **Bericht doorgestuurd naar target kanaal.**').catch(() => null);
+                    // LUXE BEVESTIGING IN TICKET
+                    const successEmbed = new EmbedBuilder()
+                        .setTitle('✨ NEXUS PARTNER HUB • BERICHT VERWERKT')
+                        .setColor('#00F0FF')
+                        .setThumbnail(message.guild.iconURL({ dynamic: true }))
+                        .setDescription(
+                            `>>> **📬 Status:** \`Gepubliceerd in\` <#${partnerChannel.id}>\n` +
+                            `**🛡️ Uitgevoerd door:** <@${message.author.id}>\n` +
+                            `**📈 Voortgang:** \`+1 Partner bijgeschreven op leaderboard!\``
+                        )
+                        .setFooter({ 
+                            text: 'Nexus Community • Official Partner System',
+                            iconURL: message.author.displayAvatarURL({ dynamic: true }) 
+                        })
+                        .setTimestamp();
 
-                    // 2. STUUR OOK HET NEXUS PARTNER BERICHT IN HET TICKETKANAAL
-                    const nexusPartnerMessage = 
+                    await message.reply({ embeds: [successEmbed] }).catch(() => null);
+
+                    // NEXUS PROMO BERICHT IN TICKET
+                    const nexusPartnerPromo = 
                         `# 🚀 We’re Back!\n` +
                         `# Nexus Community \n\n` +
                         `**A brand-new server, a fresh start, and more motivation than ever.**\n\n` +
-                        `Join our growing community and enjoy:\n\n` +
-                        `• Regular Giveaways\n` +
-                        `• Custom Discord Bot\n` +
-                        `• Active Community\n` +
-                        `• Fun Events\n` +
-                        `• Trusted Partnerships\n\n` +
-                        `This is only the beginning. Join us today and be part of something bigger!\n\n` +
-                        `🔗 Invite: https://discord.gg/f5XBqE5J2`;
+                        `**Join our growing community and enjoy:**\n` +
+                        `• 🎁 **Regular Giveaways**\n` +
+                        `• 🤖 **Custom Discord Bot**\n` +
+                        `• 💬 **Active Community**\n` +
+                        `• 🎮 **Fun Events**\n` +
+                        `• 🤝 **Trusted Partnerships**\n\n` +
+                        `*This is only the beginning. Join us today and be part of something bigger!*\n\n` +
+                        `🔗 **Invite Link:** https://discord.gg/f5XBqE5J2`;
 
-                    await message.channel.send({ content: nexusPartnerMessage }).catch(() => null);
+                    await message.channel.send({ content: nexusPartnerPromo }).catch(() => null);
 
-                    // TRIGGER AUTOMATISCH LEADERBOARD + STICKY MESSAGE IN PARTNERS
+                    // SCORE EN LEADERBOARD VERWERKEN
                     const discordInviteRegex = /(https?:\/\/)?(www\.)?(discord\.gg|discord\.me|discordapp\.com\/invite|discord\.com\/invite)\/([a-zA-Z0-9-]{2,32})/gi;
                     const matches = targetMessage.content ? targetMessage.content.match(discordInviteRegex) : null;
 
@@ -289,7 +326,6 @@ export default {
                         if (!global.loggedPartnerLinks.has(inviteLink)) {
                             global.loggedPartnerLinks.add(inviteLink);
 
-                            // Geef punten aan degene die !pb heeft uitgevoerd
                             const currentCount = (global.userPartnerCounts.get(message.author.id) || 0) + 1;
                             global.userPartnerCounts.set(message.author.id, currentCount);
 
@@ -297,7 +333,7 @@ export default {
                         }
                     }
 
-                    // Sticky message onderaan houden
+                    // STICKY MESSAGE IN PARTNERKANAAL
                     try {
                         if (global.partnerStickyMessageId) {
                             const oldSticky = await partnerChannel.messages.fetch(global.partnerStickyMessageId).catch(() => null);
@@ -307,13 +343,14 @@ export default {
                         const newSticky = await partnerChannel.send({ content: stickyText });
                         global.partnerStickyMessageId = newSticky.id;
                     } catch (e) {}
+
                 } else {
-                    await message.reply('❌ Fout bij het doorsturen van het bericht naar het partnerkanaal.').catch(() => null);
+                    await message.reply({ content: '❌ Fout bij het doorsturen van het bericht naar het partnerkanaal.' }).catch(() => null);
                 }
 
             } catch (err) {
                 console.error('❌ Fout bij !pb execution:', err);
-                await message.reply('❌ Er ging iets mis bij het uitvoeren van `!pb`.').catch(() => null);
+                await message.reply({ content: '❌ Er ging iets mis bij het uitvoeren van `!pb`.' }).catch(() => null);
             }
             return;
         }
@@ -374,7 +411,7 @@ export default {
                 await updatePartnerLeaderboard(client, message.guild);
             }
 
-            // STICKY MESSAGE AFHANDELING ONDERAAN HET KANAAL
+            // STICKY MESSAGE
             try {
                 if (global.partnerStickyMessageId) {
                     const oldSticky = await message.channel.messages.fetch(global.partnerStickyMessageId).catch(() => null);
@@ -384,9 +421,7 @@ export default {
                 const stickyText = `# We are against Scam, negative and leak servers. So we don't partner with this either`;
                 const newSticky = await message.channel.send({ content: stickyText });
                 global.partnerStickyMessageId = newSticky.id;
-            } catch (e) {
-                // Sla sticky fouten stil over
-            }
+            } catch (e) {}
 
             return;
         }
