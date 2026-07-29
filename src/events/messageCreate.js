@@ -8,6 +8,8 @@ import {
     StringSelectMenuOptionBuilder 
 } from 'discord.js';
 
+import { executePurge } from '../commands/moderation/purge.js';
+
 // --- GLOBALE GEHEUGENSTORES ---
 if (!global.loggedPartnerLinks) global.loggedPartnerLinks = new Set();
 if (!global.userPartnerCounts) global.userPartnerCounts = new Map();
@@ -56,7 +58,7 @@ if (!global.guessNumberState) {
     };
 }
 
-// Vragenlijst voor Marketing (Exact 10 schone vragen)
+// Vragenlijst voor Marketing
 if (!global.marketingQuestions) {
     global.marketingQuestions = [
         "Wat is jouw Naam?",
@@ -149,7 +151,7 @@ async function updatePartnerLeaderboard(client, guild) {
 
         let leaderboardText = '';
         if (!global.userPartnerCounts || global.userPartnerCounts.size === 0) {
-            leaderboardText = '*`Nog geen actieve partners geregistreerd.`*\n*Plaats een link in #🍀' + '〢partners om te beginnen!*';
+            leaderboardText = '*`Nog geen actieve partners geregistreerd.`*\n*Plaats een link in #🍀〢partners om te beginnen!*';
         } else {
             const sorted = Array.from(global.userPartnerCounts.entries())
                 .filter(([_, count]) => count > 0)
@@ -253,9 +255,9 @@ export default {
         if (message.author.bot) return;
 
         // ==========================================================
-        // FEATURE 1: APPY-STYLE DM SOLLICITATIE BEANTWOORDING
+        // FEATURE 1: DM SOLLICITATIE BEANTWOORDING
         // ==========================================================
-        if (!message.guild) { // DM BERICHT MET DE BOT
+        if (!message.guild) {
             const session = global.userApplySessions.get(message.author.id);
             if (!session) return;
 
@@ -263,7 +265,6 @@ export default {
             session.answers.push(message.content.trim());
             session.step += 1;
 
-            // Volgende vraag sturen
             if (session.step < questions.length) {
                 const nextQuestionEmbed = new EmbedBuilder()
                     .setTitle(`Nexus Community • Marketing Sollicitatie (${session.step + 1}/${questions.length})`)
@@ -274,7 +275,6 @@ export default {
                 return;
             }
 
-            // Alle vragen beantwoord!
             const doneEmbed = new EmbedBuilder()
                 .setTitle('🎉 Sollicitatie Voltooid!')
                 .setColor('#00FF88')
@@ -285,7 +285,6 @@ export default {
 
             await message.channel.send({ embeds: [doneEmbed] }).catch(() => null);
 
-            // Stuur resultaat naar #📑〢application-results
             try {
                 const guild = client.guilds.cache.get(session.guildId) || client.guilds.cache.first();
                 if (guild) {
@@ -339,16 +338,43 @@ export default {
             return;
         }
 
-        // Vanaf hier alleen berichten IN een guild/server
         if (!message.guild) return;
 
         const contentTrimmed = message.content.trim().toLowerCase();
 
         // ==========================================================
-        // FEATURE 2: !pb COMMANDO (PARTNER BERICHT REPLIER)
+        // FEATURE 2: ?PURGE / ?CLEAR COMMANDO (BERICHTEN VERWIJDEREN)
+        // ==========================================================
+        if (
+            contentTrimmed.startsWith('?purge') || 
+            contentTrimmed.startsWith('!purge') || 
+            contentTrimmed.startsWith('?clear') || 
+            contentTrimmed.startsWith('!clear')
+        ) {
+            const args = message.content.trim().split(/\s+/);
+            const amountInput = parseInt(args[1], 10);
+
+            if (isNaN(amountInput) || amountInput <= 0) {
+                const warnMsg = await message.reply('⚠️ **Gebruik:** Typ `?purge <aantal>` (bijv. `?purge 100`).').catch(() => null);
+                setTimeout(() => {
+                    warnMsg?.delete().catch(() => null);
+                    message.delete().catch(() => null);
+                }, 5000);
+                return;
+            }
+
+            // Verwijder eerst het ?purge commando bericht zelf
+            await message.delete().catch(() => null);
+
+            // Voer de opschoning uit
+            await executePurge(message.channel, message.member, amountInput, null);
+            return;
+        }
+
+        // ==========================================================
+        // FEATURE 3: !pb COMMANDO (PARTNER BERICHT REPLIER)
         // ==========================================================
         if (contentTrimmed === '!pb' || contentTrimmed.startsWith('!pb ') || contentTrimmed === '!partnerbericht') {
-            
             if (!message.reference || !message.reference.messageId) {
                 const warnEmbed = new EmbedBuilder()
                     .setTitle('⚠️ Partner Bericht Instructie')
@@ -456,7 +482,7 @@ export default {
         const channelName = message.channel.name.toLowerCase();
 
         // ==========================================================
-        // FEATURE 3: PARTNER SYSTEM DIRECT IN #🍀〢partners
+        // FEATURE 4: PARTNER SYSTEM DIRECT IN #🍀〢partners
         // ==========================================================
         const isPartnerChannel = channelName.includes('partner') && !channelName.includes('log');
 
