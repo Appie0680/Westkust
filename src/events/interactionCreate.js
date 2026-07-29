@@ -1,4 +1,4 @@
-import { Events, MessageFlags } from 'discord.js';
+import { Events, MessageFlags, EmbedBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder } from 'discord.js';
 import { logger } from '../utils/logger.js';
 import { getGuildConfig } from '../services/config/guildConfig.js';
 import {
@@ -35,6 +35,24 @@ const COMMAND_ERROR_SUBTYPES = {
   gdelete: 'giveaway_failed',
   greroll: 'giveaway_failed',
 };
+
+// Vragenlijst voor Marketing
+if (!global.marketingQuestions) {
+  global.marketingQuestions = [
+    "Wat is jouw volledige In-Game / Karakter Naam?",
+    "Wat is jouw Leeftijd?",
+    "1/8. Vertel kort iets over jezelf.",
+    "2/8. Waarom wil je in het marketing team werken?",
+    "3/8. Waarom wil je specifiek bij Nexus Community werken?",
+    "4/8. Wat zijn jouw sterke en zwakke punten?",
+    "5/8. Hoe ga je om met opbouwende kritiek en feedback?",
+    "6/8. Waarom moeten wij juist JOU aannemen?",
+    "7/8. Wanneer en hoeveel ben je beschikbaar om te beginnen? (bijv. direct, over 2 weken)",
+    "8/8. Heb je tot slot nog vragen aan ons?"
+  ];
+}
+
+if (!global.userApplySessions) global.userApplySessions = new Map();
 
 function withTraceContext(context = {}, traceContext = {}) {
   return {
@@ -307,6 +325,125 @@ export default {
             }
           }
         } else if (interaction.isButton()) {
+          // --- APPY-STYLE SOLLICITATIE KNOPPEN ---
+          if (interaction.customId === 'start_marketing_application') {
+            try {
+              const dmChannel = await interaction.user.createDM().catch(() => null);
+              if (!dmChannel) {
+                return interaction.reply({
+                  content: '❌ Je hebt je privéberichten (DM) uitstaan! Zet je DM open voor deze server om te kunnen solliciteren.',
+                  flags: MessageFlags.Ephemeral
+                });
+              }
+
+              global.userApplySessions.set(interaction.user.id, {
+                step: 0,
+                answers: [],
+                guildId: interaction.guildId
+              });
+
+              const startEmbed = new EmbedBuilder()
+                .setTitle('💼 Sollicitatie Marketing Team • Nexus Community')
+                .setColor('#00F0FF')
+                .setDescription(
+                  `Super dat je wilt solliciteren! We gaan nu stap-voor-stap de vragen doornemen.\n\n` +
+                  `*Antwoord simpelweg op de berichten van de bot.*`
+                );
+
+              await dmChannel.send({ embeds: [startEmbed] }).catch(() => null);
+
+              const firstQuestionEmbed = new EmbedBuilder()
+                .setTitle(`Vraag 1 van ${global.marketingQuestions.length}`)
+                .setColor('#00FF88')
+                .setDescription(`**${global.marketingQuestions[0]}**\n\n*Reageer met een bericht op deze DM met jouw antwoord.*`);
+
+              await dmChannel.send({ embeds: [firstQuestionEmbed] }).catch(() => null);
+
+              return interaction.reply({
+                content: '📩 **Check je DM!** De sollicitatie vragenlijst is naar je privéberichten gestuurd.',
+                flags: MessageFlags.Ephemeral
+              });
+            } catch (e) {
+              logger.error('Fout bij starten DM sollicitatie:', e);
+              return interaction.reply({ content: '❌ Kon geen DM sturen.', flags: MessageFlags.Ephemeral });
+            }
+          }
+
+          if (interaction.customId === 'toggle_application_status') {
+            if (!interaction.member.permissions.has('Administrator')) {
+              return interaction.reply({ content: '❌ Alleen beheerders kunnen dit paneel sluiten!', flags: MessageFlags.Ephemeral });
+            }
+
+            const msg = interaction.message;
+            const embed = EmbedBuilder.from(msg.embeds[0]);
+            const isCurrentlyOpen = embed.data.description.includes('`OPEN`');
+
+            if (isCurrentlyOpen) {
+              embed.setColor('#FF0033');
+              embed.setDescription(embed.data.description.replace('🟢 **Status:** `OPEN`', '🔴 **Status:** `GESLOTEN`'));
+              
+              const row = ActionRowBuilder.from(msg.components[0]);
+              row.components[0].setDisabled(true);
+              row.components[1].setLabel('🔓 Sollicitaties Openen (Beheer)').setStyle(ButtonStyle.Success);
+
+              await msg.edit({ embeds: [embed], components: [row] });
+              return interaction.reply({ content: '🔒 Sollicitaties zijn nu **GESLOTEN**.', flags: MessageFlags.Ephemeral });
+            } else {
+              embed.setColor('#00F0FF');
+              embed.setDescription(embed.data.description.replace('🔴 **Status:** `GESLOTEN`', '🟢 **Status:** `OPEN`'));
+              
+              const row = ActionRowBuilder.from(msg.components[0]);
+              row.components[0].setDisabled(false);
+              row.components[1].setLabel('🔒 Sollicitaties Sluiten (Beheer)').setStyle(ButtonStyle.Secondary);
+
+              await msg.edit({ embeds: [embed], components: [row] });
+              return interaction.reply({ content: '🔓 Sollicitaties zijn nu weer **GEOPEND**.', flags: MessageFlags.Ephemeral });
+            }
+          }
+
+          if (interaction.customId.startsWith('accept_app_') || interaction.customId.startsWith('deny_app_')) {
+            if (!interaction.member.permissions.has('Administrator')) {
+              return interaction.reply({ content: '❌ Alleen beheerders kunnen sollicitaties beoordelen.', flags: MessageFlags.Ephemeral });
+            }
+
+            const targetUserId = interaction.customId.split('_')[2];
+            const isAccept = interaction.customId.startsWith('accept_app_');
+            const targetUser = await client.users.fetch(targetUserId).catch(() => null);
+
+            const msg = interaction.message;
+            const oldEmbed = msg.embeds[0];
+            const newEmbed = EmbedBuilder.from(oldEmbed);
+
+            if (isAccept) {
+              newEmbed.setColor('#00FF88');
+              newEmbed.setTitle(`✅ SOLLICITATIE GOEDGEKEURD • ${targetUser?.username || targetUserId}`);
+              newEmbed.setFooter({ text: `Goedgekeurd door ${interaction.user.tag}` });
+
+              if (targetUser) {
+                await targetUser.send({
+                  content: `🎉 **Gefeliciteerd!** Jouw sollicitatie voor het **Marketing Team** van Nexus Community is **GOEDGEKEURD**!\n\n📩 Je mag nu een ticket aanmaken op de Discord server om je rol te ontvangen.`
+                }).catch(() => null);
+              }
+            } else {
+              newEmbed.setColor('#FF0033');
+              newEmbed.setTitle(`❌ SOLLICITATIE AFGEKEURD • ${targetUser?.username || targetUserId}`);
+              newEmbed.setFooter({ text: `Afgekeurd door ${interaction.user.tag}` });
+
+              if (targetUser) {
+                await targetUser.send({
+                  content: `❌ Jouw sollicitatie voor het **Marketing Team** van Nexus Community is helaas **AFGEKEURD**.\n\nVolgende keer beter, bedankt voor je inzet en sollicitatie!`
+                }).catch(() => null);
+              }
+            }
+
+            const disabledRow = new ActionRowBuilder().addComponents(
+              new ButtonBuilder().setCustomId('disabled_1').setLabel(isAccept ? '✅ Goedgekeurd' : '❌ Afgekeurd').setStyle(isAccept ? ButtonStyle.Success : ButtonStyle.Danger).setDisabled(true)
+            );
+
+            await msg.edit({ embeds: [newEmbed], components: [disabledRow] });
+            return interaction.reply({ content: `✅ Sollicitatie van <@${targetUserId}> is succesvol ${isAccept ? 'goedgekeurd' : 'afgekeurd'}!`, flags: MessageFlags.Ephemeral });
+          }
+
           if (interaction.customId.startsWith('shared_todo_')) {
             const parts = interaction.customId.split('_');
             const buttonType = parts.slice(0, 3).join('_');
