@@ -52,7 +52,7 @@ if (!global.guessNumberState) {
     };
 }
 
-// --- HELPER FUNCTIE: TELSYSTEME VOORKEUR/STAND AUTOMATISCH OPHALEN UIT CHAT ---
+// --- HELPER FUNCTIE: TELSYSTEME STAND DYNAMISCH OPHALEN ---
 async function ensureCountingState(channel) {
     const state = global.countingState;
     if (state.initialized) return;
@@ -61,12 +61,9 @@ async function ensureCountingState(channel) {
         const messages = await channel.messages.fetch({ limit: 25 }).catch(() => null);
         if (!messages) return;
 
-        // Zoek het meest recente geldige bericht van een gebruiker
         for (const [id, msg] of messages) {
             if (msg.author.bot) continue;
             const num = parseInt(msg.content.trim(), 10);
-            
-            // Check of het een getal is en een groen vinkje heeft
             const hasCheckMark = msg.reactions.cache.some(r => r.emoji.name === '✅');
             if (!isNaN(num) && num.toString() === msg.content.trim() && (hasCheckMark || messages.size > 0)) {
                 state.currentCount = num;
@@ -75,13 +72,11 @@ async function ensureCountingState(channel) {
                 return;
             }
         }
-    } catch (e) {
-        // Fallback
-    }
+    } catch (e) {}
     state.initialized = true;
 }
 
-// --- HELPER FUNCTIE: WOORDENSLANG STAND AUTOMATISCH OPHALEN UIT CHAT ---
+// --- HELPER FUNCTIE: WOORDENSLANG STAND DYNAMISCH OPHALEN ---
 async function ensureWordSnakeState(channel) {
     const state = global.wordSnakeState;
     if (state.initialized) return;
@@ -102,7 +97,6 @@ async function ensureWordSnakeState(channel) {
         }
 
         if (validMessages.length > 0) {
-            // De nieuwste staat bovenaan in array
             const lastMsg = validMessages[0];
             state.currentWord = lastMsg.word;
             state.lastLetter = lastMsg.word.slice(-1);
@@ -113,9 +107,7 @@ async function ensureWordSnakeState(channel) {
             state.initialized = true;
             return;
         }
-    } catch (e) {
-        // Fallback
-    }
+    } catch (e) {}
 
     state.currentWord = 'slang';
     state.lastLetter = 'g';
@@ -223,10 +215,113 @@ export default {
     async execute(message, client) {
         if (message.author.bot || !message.guild) return;
 
+        const contentTrimmed = message.content.trim().toLowerCase();
+
+        // ==========================================================
+        // FEATURE: !pb COMMANDO (PARTNER BERICHT REPLIER)
+        // ==========================================================
+        if (contentTrimmed === '!pb' || contentTrimmed.startsWith('!pb ') || contentTrimmed === '!partnerbericht') {
+            // Check of het bericht een reply is op een ander bericht
+            if (!message.reference || !message.reference.messageId) {
+                const errReply = await message.reply('⚠️ **Gebruik:** Reageer (reply) op het partnerbericht dat je wilt doorsturen en typ `!pb`.').catch(() => null);
+                setTimeout(() => {
+                    errReply?.delete().catch(() => null);
+                    message.delete().catch(() => null);
+                }, 5000);
+                return;
+            }
+
+            try {
+                // Haal het originele bericht op waar op is gereageerd
+                const targetMessage = await message.channel.messages.fetch(message.reference.messageId).catch(() => null);
+                if (!targetMessage) {
+                    return message.reply('❌ Kon het originele bericht niet ophalen.').catch(() => null);
+                }
+
+                // Zoek het partner kanaal (#🍀〢partners)
+                const partnerChannel = message.guild.channels.cache.find(c => 
+                    (c.name.includes('partner') && !c.name.includes('log')) ||
+                    c.name === '🍀〢partners' ||
+                    c.name === 'partners'
+                );
+
+                if (!partnerChannel) {
+                    return message.reply('❌ Het partnerkanaal (`#🍀〢partners`) kon niet worden gevonden!').catch(() => null);
+                }
+
+                // Bouw het te verzenden pakket (tekst, embeds en eventuele bijlagen/afbeeldingen)
+                const payload = {};
+                if (targetMessage.content) payload.content = targetMessage.content;
+                if (targetMessage.embeds && targetMessage.embeds.length > 0) payload.embeds = targetMessage.embeds;
+                if (targetMessage.attachments && targetMessage.attachments.size > 0) {
+                    payload.files = Array.from(targetMessage.attachments.values()).map(a => a.url);
+                }
+
+                // Stuur door naar het partnerkanaal
+                const sentMsg = await partnerChannel.send(payload).catch(() => null);
+
+                if (sentMsg) {
+                    // 1. BEVESTIGING IN HET TICKETKANAAL
+                    await message.reply('✅ **Bericht doorgestuurd naar target kanaal.**').catch(() => null);
+
+                    // 2. STUUR OOK HET NEXUS PARTNER BERICHT IN HET TICKETKANAAL
+                    const nexusPartnerMessage = 
+                        `# 🚀 We’re Back!\n` +
+                        `# Nexus Community \n\n` +
+                        `**A brand-new server, a fresh start, and more motivation than ever.**\n\n` +
+                        `Join our growing community and enjoy:\n\n` +
+                        `• Regular Giveaways\n` +
+                        `• Custom Discord Bot\n` +
+                        `• Active Community\n` +
+                        `• Fun Events\n` +
+                        `• Trusted Partnerships\n\n` +
+                        `This is only the beginning. Join us today and be part of something bigger!\n\n` +
+                        `🔗 Invite: https://discord.gg/f5XBqE5J2`;
+
+                    await message.channel.send({ content: nexusPartnerMessage }).catch(() => null);
+
+                    // TRIGGER AUTOMATISCH LEADERBOARD + STICKY MESSAGE IN PARTNERS
+                    const discordInviteRegex = /(https?:\/\/)?(www\.)?(discord\.gg|discord\.me|discordapp\.com\/invite|discord\.com\/invite)\/([a-zA-Z0-9-]{2,32})/gi;
+                    const matches = targetMessage.content ? targetMessage.content.match(discordInviteRegex) : null;
+
+                    if (matches && matches.length > 0) {
+                        const inviteLink = matches[0].toLowerCase();
+                        if (!global.loggedPartnerLinks.has(inviteLink)) {
+                            global.loggedPartnerLinks.add(inviteLink);
+
+                            // Geef punten aan degene die !pb heeft uitgevoerd
+                            const currentCount = (global.userPartnerCounts.get(message.author.id) || 0) + 1;
+                            global.userPartnerCounts.set(message.author.id, currentCount);
+
+                            await updatePartnerLeaderboard(client, message.guild);
+                        }
+                    }
+
+                    // Sticky message onderaan houden
+                    try {
+                        if (global.partnerStickyMessageId) {
+                            const oldSticky = await partnerChannel.messages.fetch(global.partnerStickyMessageId).catch(() => null);
+                            if (oldSticky) await oldSticky.delete().catch(() => null);
+                        }
+                        const stickyText = `# We are against Scam, negative and leak servers. So we don't partner with this either`;
+                        const newSticky = await partnerChannel.send({ content: stickyText });
+                        global.partnerStickyMessageId = newSticky.id;
+                    } catch (e) {}
+                } else {
+                    await message.reply('❌ Fout bij het doorsturen van het bericht naar het partnerkanaal.').catch(() => null);
+                }
+
+            } catch (err) {
+                console.error('❌ Fout bij !pb execution:', err);
+                await message.reply('❌ Er ging iets mis bij het uitvoeren van `!pb`.').catch(() => null);
+            }
+            return;
+        }
+
         const channelName = message.channel.name.toLowerCase();
 
         // ==========================================================
-        // FEATURE: PARTNER SYSTEM IN #🍀〢partners
+        // FEATURE: PARTNER SYSTEM DIRECT IN #🍀〢partners
         // ==========================================================
         const isPartnerChannel = channelName.includes('partner') && !channelName.includes('log');
 
