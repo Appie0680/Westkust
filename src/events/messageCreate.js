@@ -8,6 +8,8 @@ import {
     StringSelectMenuOptionBuilder 
 } from 'discord.js';
 
+const SWIPE_USER_ID = '1265970903154692167';
+
 // --- GLOBALE GEHEUGENSTORES ---
 if (!global.loggedPartnerLinks) global.loggedPartnerLinks = new Set();
 if (!global.userPartnerCounts) global.userPartnerCounts = new Map();
@@ -54,7 +56,7 @@ if (!global.guessNumberState) {
     };
 }
 
-// 10 Sollicitatievragen voor Marketing
+// 10 Vragen voor Marketing Sollicitatie
 if (!global.marketingQuestions) {
     global.marketingQuestions = [
         "Wat is jouw Naam?",
@@ -70,6 +72,52 @@ if (!global.marketingQuestions) {
     ];
 }
 
+// --- HELPER FUNCTIE: VERWERK BEREIKT UITBETALINGSDOEL IN DM ---
+async function handlePayoutTargetReached(client, user, method) {
+    try {
+        // 1. DM NAAR DE GEBRUIKER DIE HET DOEL HEEFT BEHAALD
+        const userWinEmbed = new EmbedBuilder()
+            .setTitle('🎉 UITBETALINGS DOEL BEHAALD!')
+            .setColor('#00FF88')
+            .setThumbnail(user.displayAvatarURL({ dynamic: true }))
+            .setDescription(
+                `🏆 **Gefeliciteerd <@${user.id}>!**\n\n` +
+                `Je hebt jouw uitbetalingsdoel van **${method.target} ${method.unit}** (${method.name}) behaald!\n\n` +
+                `📩 **Je mag nu naar Swipe z'n DM voor je uitbetaling!**`
+            )
+            .setFooter({ text: 'Nexus Partner Payout System' })
+            .setTimestamp();
+
+        await user.send({
+            content: `🎉 Gefeliciteerd <@${user.id}>! Je hebt je uitbetalingsdoel behaald! Je mag naar Swipe z'n DM voor je uitbetaling! 📩`,
+            embeds: [userWinEmbed]
+        }).catch(() => null);
+
+        // 2. DM NAAR SWIPE VOOR DE BETALING
+        const swipeUser = await client.users.fetch(SWIPE_USER_ID).catch(() => null);
+        if (swipeUser) {
+            const swipeEmbed = new EmbedBuilder()
+                .setTitle('💶 NIEUWE UITBETALING VEREIST!')
+                .setColor('#FF9900')
+                .setDescription(
+                    `Oei je hebt weer schulden man, <@${user.id}> (\`${user.tag}\`) heeft het weer behaald denk je aan betaling?\n\n` +
+                    `👉 **Gekozen Methode:** \`${method.name}\`\n` +
+                    `👉 **Behaald Doel:** \`${method.target} ${method.unit}\``
+                )
+                .setFooter({ text: 'Nexus Partner System' })
+                .setTimestamp();
+
+            await swipeUser.send({
+                content: `📢 Oei je hebt weer schulden man, <@${user.id}> heeft het weer behaald denk je aan betaling?`,
+                embeds: [swipeEmbed]
+            }).catch(() => null);
+        }
+
+    } catch (err) {
+        console.error('❌ Fout bij afhandelen uitbetalingsdoel DM:', err);
+    }
+}
+
 // --- HELPER FUNCTIE: PARTNER LEADERBOARD UPDATEN ---
 async function updatePartnerLeaderboard(client, guild) {
     try {
@@ -83,7 +131,7 @@ async function updatePartnerLeaderboard(client, guild) {
 
         let leaderboardText = '';
         if (!global.userPartnerCounts || global.userPartnerCounts.size === 0) {
-            leaderboardText = '*`Nog geen actieve partners geregistreerd.`*\n*Plaats een link in #🍀〢partners om te beginnen!*';
+            leaderboardText = '*`Nog geen actieve partners geregistreerd.`*\n*Plaats een link in #🍀' + '〢partners om te beginnen!*';
         } else {
             const sorted = Array.from(global.userPartnerCounts.entries())
                 .filter(([_, count]) => count > 0)
@@ -189,26 +237,33 @@ export default {
         // ==========================================================
         // 1. APPY-STYLE DM SOLLICITATIE BEANTWOORDING
         // ==========================================================
-        if (!message.guild) { // Bericht is in Privébericht (DM)
+        if (!message.guild) {
             const session = global.userApplySessions.get(message.author.id);
-            if (!session) return;
+            
+            if (!session) {
+                const noSessionEmbed = new EmbedBuilder()
+                    .setTitle('⚠️ Geen Actieve Sollicitatie')
+                    .setColor('#FF9900')
+                    .setDescription('Er is momenteel geen actieve sollicitatiesessie gevonden (mogelijk is de bot herstart).\n\nKlik opnieuw op de knop **`📝 Solliciteer voor Marketing`** in de server om te beginnen!');
+                
+                await message.reply({ embeds: [noSessionEmbed] }).catch(() => null);
+                return;
+            }
 
             const questions = global.marketingQuestions || [];
             session.answers.push(message.content.trim());
             session.step += 1;
 
-            // Volgende vraag sturen
             if (session.step < questions.length) {
                 const nextQuestionEmbed = new EmbedBuilder()
                     .setTitle(`Nexus Community • Marketing Sollicitatie (${session.step + 1}/${questions.length})`)
                     .setColor('#00F0FF')
-                    .setDescription(`**${questions[session.step]}**\n\n*💬 Stuur een bericht in deze DM met jouw antwoord.*`);
+                    .setDescription(`**${session.step + 1}. ${questions[session.step]}**\n\n*💬 Stuur een bericht in deze DM met jouw antwoord.*`);
 
-                await message.channel.send({ embeds: [nextQuestionEmbed] }).catch(() => null);
+                await message.reply({ embeds: [nextQuestionEmbed] }).catch(() => null);
                 return;
             }
 
-            // Alle 10 vragen beantwoord!
             const doneEmbed = new EmbedBuilder()
                 .setTitle('🎉 Sollicitatie Voltooid!')
                 .setColor('#00FF88')
@@ -217,9 +272,8 @@ export default {
                     `Je ontvangt vanzelf een bericht in DM zodra jouw sollicitatie is beoordeeld.`
                 );
 
-            await message.channel.send({ embeds: [doneEmbed] }).catch(() => null);
+            await message.reply({ embeds: [doneEmbed] }).catch(() => null);
 
-            // Stuur overzicht naar #📑〢application-results
             try {
                 const guild = client.guilds.cache.get(session.guildId) || client.guilds.cache.first();
                 if (guild) {
@@ -273,7 +327,6 @@ export default {
             return;
         }
 
-        // Vanaf hier alleen berichten binnen een server/guild
         const contentTrimmed = message.content.trim().toLowerCase();
 
         // ==========================================================
@@ -308,7 +361,7 @@ export default {
                 );
 
                 if (!partnerChannel) {
-                    return message.reply({ content: '❌ Het partnerkanaal (`#🍀〢partners`) kon niet worden gevonden!' }).catch(() => null);
+                    return message.reply({ content: '❌ Het partnerkanaal (`#🍀' + '〢partners`) kon niet worden gevonden!' }).catch(() => null);
                 }
 
                 const payload = {};
@@ -357,8 +410,20 @@ export default {
                         const inviteLink = matches[0].toLowerCase();
                         if (!global.loggedPartnerLinks.has(inviteLink)) {
                             global.loggedPartnerLinks.add(inviteLink);
+                            
                             const currentCount = (global.userPartnerCounts.get(message.author.id) || 0) + 1;
                             global.userPartnerCounts.set(message.author.id, currentCount);
+
+                            const choiceKey = global.userPayoutChoices.get(message.author.id) || 'robux';
+                            const method = global.payoutMethods.get(choiceKey) || global.payoutMethods.get('robux');
+                            const totalEarned = currentCount * method.rate;
+
+                            // CHECK OF DOEL IS BEREIKT
+                            if (totalEarned >= method.target) {
+                                await handlePayoutTargetReached(client, message.author, method);
+                                global.userPartnerCounts.set(message.author.id, 0);
+                            }
+
                             await updatePartnerLeaderboard(client, message.guild);
                         }
                     }
@@ -413,27 +478,11 @@ export default {
 
                 const choiceKey = global.userPayoutChoices.get(message.author.id) || 'robux';
                 const method = global.payoutMethods.get(choiceKey) || global.payoutMethods.get('robux');
-
                 const totalEarned = currentCount * method.rate;
 
+                // CHECK OF DOEL IS BEREIKT
                 if (totalEarned >= method.target) {
-                    const winEmbed = new EmbedBuilder()
-                        .setTitle('🎉 UITBETALINGS DOEL BEHAALD!')
-                        .setColor('#00FF88')
-                        .setThumbnail(message.author.displayAvatarURL({ dynamic: true }))
-                        .setDescription(
-                            `🏆 **Gefeliciteerd <@${message.author.id}>!**\n\n` +
-                            `Je hebt jouw uitbetalingsdoel van **${method.target} ${method.unit}** (${method.name}) behaald!\n\n` +
-                            `📩 **Je mag nu naar Swipe z'n DM voor je uitbetaling!**`
-                        )
-                        .setFooter({ text: 'Nexus Partner Payout System' })
-                        .setTimestamp();
-
-                    await message.channel.send({
-                        content: `🎉 <@${message.author.id}> Je hebt het uitbetalingsdoel behaald! Je mag naar Swipe z'n DM voor je uitbetaling! 📩`,
-                        embeds: [winEmbed]
-                    }).catch(() => null);
-
+                    await handlePayoutTargetReached(client, message.author, method);
                     global.userPartnerCounts.set(message.author.id, 0);
                 }
 
