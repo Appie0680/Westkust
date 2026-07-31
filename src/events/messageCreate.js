@@ -8,8 +8,6 @@ import {
     StringSelectMenuOptionBuilder 
 } from 'discord.js';
 
-import { executePurge } from '../commands/moderation/purge.js';
-
 // --- GLOBALE GEHEUGENSTORES ---
 if (!global.loggedPartnerLinks) global.loggedPartnerLinks = new Set();
 if (!global.userPartnerCounts) global.userPartnerCounts = new Map();
@@ -27,7 +25,7 @@ if (!global.payoutMethods) {
     ]);
 }
 
-// Dynamische state voor minigames
+// Dynamische state voor spellen
 if (!global.wordSnakeState) {
     global.wordSnakeState = {
         currentWord: 'slang',
@@ -56,7 +54,7 @@ if (!global.guessNumberState) {
     };
 }
 
-// Vragenlijst voor Marketing
+// 10 Sollicitatievragen voor Marketing
 if (!global.marketingQuestions) {
     global.marketingQuestions = [
         "Wat is jouw Naam?",
@@ -85,7 +83,7 @@ async function updatePartnerLeaderboard(client, guild) {
 
         let leaderboardText = '';
         if (!global.userPartnerCounts || global.userPartnerCounts.size === 0) {
-            leaderboardText = '*`Nog geen actieve partners geregistreerd.`*\n*Plaats een link in #🍀' + '〢partners om te beginnen!*';
+            leaderboardText = '*`Nog geen actieve partners geregistreerd.`*\n*Plaats een link in #🍀〢partners om te beginnen!*';
         } else {
             const sorted = Array.from(global.userPartnerCounts.entries())
                 .filter(([_, count]) => count > 0)
@@ -189,9 +187,9 @@ export default {
         if (message.author.bot) return;
 
         // ==========================================================
-        // FEATURE 1: DM SOLLICITATIE BEANTWOORDING
+        // 1. APPY-STYLE DM SOLLICITATIE BEANTWOORDING
         // ==========================================================
-        if (!message.guild) {
+        if (!message.guild) { // Bericht is in Privébericht (DM)
             const session = global.userApplySessions.get(message.author.id);
             if (!session) return;
 
@@ -199,16 +197,18 @@ export default {
             session.answers.push(message.content.trim());
             session.step += 1;
 
+            // Volgende vraag sturen
             if (session.step < questions.length) {
                 const nextQuestionEmbed = new EmbedBuilder()
                     .setTitle(`Nexus Community • Marketing Sollicitatie (${session.step + 1}/${questions.length})`)
                     .setColor('#00F0FF')
-                    .setDescription(`**${session.step + 1}. ${questions[session.step]}**\n\n*💬 Stuur een bericht in deze DM met jouw antwoord.*`);
+                    .setDescription(`**${questions[session.step]}**\n\n*💬 Stuur een bericht in deze DM met jouw antwoord.*`);
 
                 await message.channel.send({ embeds: [nextQuestionEmbed] }).catch(() => null);
                 return;
             }
 
+            // Alle 10 vragen beantwoord!
             const doneEmbed = new EmbedBuilder()
                 .setTitle('🎉 Sollicitatie Voltooid!')
                 .setColor('#00FF88')
@@ -219,6 +219,7 @@ export default {
 
             await message.channel.send({ embeds: [doneEmbed] }).catch(() => null);
 
+            // Stuur overzicht naar #📑〢application-results
             try {
                 const guild = client.guilds.cache.get(session.guildId) || client.guilds.cache.first();
                 if (guild) {
@@ -272,38 +273,11 @@ export default {
             return;
         }
 
-        if (!message.guild) return;
-
+        // Vanaf hier alleen berichten binnen een server/guild
         const contentTrimmed = message.content.trim().toLowerCase();
 
         // ==========================================================
-        // FEATURE 2: ?PURGE / ?CLEAR COMMANDO
-        // ==========================================================
-        if (
-            contentTrimmed.startsWith('?purge') || 
-            contentTrimmed.startsWith('!purge') || 
-            contentTrimmed.startsWith('?clear') || 
-            contentTrimmed.startsWith('!clear')
-        ) {
-            const args = message.content.trim().split(/\s+/);
-            const amountInput = parseInt(args[1], 10);
-
-            if (isNaN(amountInput) || amountInput <= 0) {
-                const warnMsg = await message.reply('⚠️ **Gebruik:** Typ `?purge <aantal>` (bijv. `?purge 100`).').catch(() => null);
-                setTimeout(() => {
-                    warnMsg?.delete().catch(() => null);
-                    message.delete().catch(() => null);
-                }, 5000);
-                return;
-            }
-
-            await message.delete().catch(() => null);
-            await executePurge(message.channel, message.member, amountInput, null);
-            return;
-        }
-
-        // ==========================================================
-        // FEATURE 3: !pb COMMANDO (PARTNER BERICHT REPLIER)
+        // 2. !pb COMMANDO (PARTNER BERICHT REPLIER)
         // ==========================================================
         if (contentTrimmed === '!pb' || contentTrimmed.startsWith('!pb ') || contentTrimmed === '!partnerbericht') {
             if (!message.reference || !message.reference.messageId) {
@@ -329,12 +303,12 @@ export default {
 
                 const partnerChannel = message.guild.channels.cache.find(c => 
                     (c.name.includes('partner') && !c.name.includes('log')) ||
-                    c.name === '🍀' + '®partners' ||
+                    c.name === '🍀' + '〢partners' ||
                     c.name === 'partners'
                 );
 
                 if (!partnerChannel) {
-                    return message.reply({ content: '❌ Het partnerkanaal (`#🍀' + '〢partners`) kon niet worden gevonden!' }).catch(() => null);
+                    return message.reply({ content: '❌ Het partnerkanaal (`#🍀〢partners`) kon niet worden gevonden!' }).catch(() => null);
                 }
 
                 const payload = {};
@@ -413,7 +387,7 @@ export default {
         const channelName = message.channel.name.toLowerCase();
 
         // ==========================================================
-        // FEATURE 4: PARTNER SYSTEM DIRECT IN #🍀〢partners
+        // 3. PARTNER DETECTIE IN #🍀〢partners
         // ==========================================================
         const isPartnerChannel = channelName.includes('partner') && !channelName.includes('log');
 
@@ -481,7 +455,7 @@ export default {
         }
 
         // ==========================================================
-        // GAME 1: GUESS THE NUMBER (#🔔〢guess-the-number)
+        // 4. GUESS THE NUMBER (#🔔〢guess-the-number)
         // ==========================================================
         const isGuessChannel = channelName.includes('guess');
 
@@ -544,7 +518,7 @@ export default {
         }
 
         // ==========================================================
-        // GAME 2: TELSYSTEME (#🔢〢count)
+        // 5. TELSYSTEME (#🔢〢count)
         // ==========================================================
         const isCountingChannel = channelName.includes('count') && !channelName.includes('log');
 
@@ -552,7 +526,7 @@ export default {
             const countState = global.countingState;
             const content = message.content.trim();
 
-            if (content.startsWith('/') || content.startsWith('!') || content.startsWith('?')) return;
+            if (content.startsWith('/') || content.startsWith('!')) return;
 
             const inputNumber = parseInt(content, 10);
             if (isNaN(inputNumber) || inputNumber.toString() !== content) return;
@@ -618,15 +592,15 @@ export default {
         }
 
         // ==========================================================
-        // GAME 3: WOORDENSLANG (#🐍〢word-snake)
+        // 6. WOORDENSLANG (#🐍〢word-snake)
         // ==========================================================
-        const isSnakeChannel = channelName.includes('word') || channelName.includes('snake');
+        const isSnakeChannel = channelName.includes('word-snake') || channelName.includes('snake');
 
         if (isSnakeChannel) {
             const state = global.wordSnakeState;
             const inputWord = message.content.trim().toLowerCase();
 
-            if (inputWord.startsWith('/') || inputWord.startsWith('!') || inputWord.startsWith('?')) return;
+            if (inputWord.startsWith('/') || inputWord.startsWith('!')) return;
 
             const wordRegex = /^[a-zA-Záéíóúnñçäëïöü-]+$/;
             if (!wordRegex.test(inputWord) || inputWord.includes(' ')) {
