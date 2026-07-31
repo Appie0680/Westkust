@@ -30,13 +30,12 @@ if (!global.payoutMethods) {
 // Dynamische state voor minigames
 if (!global.wordSnakeState) {
     global.wordSnakeState = {
-        currentWord: null,
-        lastLetter: null,
+        currentWord: 'slang',
+        lastLetter: 'g',
         lastUserId: null,
-        usedWords: new Set(),
-        snakeLength: 0,
-        highScore: 0,
-        initialized: false
+        usedWords: new Set(['slang']),
+        snakeLength: 1,
+        highScore: 1
     };
 }
 
@@ -44,8 +43,7 @@ if (!global.countingState) {
     global.countingState = {
         currentCount: 0,
         lastUserId: null,
-        highScore: 0,
-        initialized: false
+        highScore: 0
     };
 }
 
@@ -72,73 +70,6 @@ if (!global.marketingQuestions) {
         "Wanneer ben je beschikbaar om te beginnen? (Bijvoorbeeld: over 2 weken)",
         "Heb je tot slot nog vragen aan ons?"
     ];
-}
-
-// --- HELPER FUNCTIE: TELSYSTEME STAND DYNAMISCH OPHALEN (SLAAT HUIDIG BERICHT OVER) ---
-async function ensureCountingState(channel, currentMessageId) {
-    const state = global.countingState;
-    if (state.initialized) return;
-
-    try {
-        const messages = await channel.messages.fetch({ limit: 30 }).catch(() => null);
-        if (messages) {
-            for (const [id, msg] of messages) {
-                // Sla bots én het huidige net ingestuurde bericht over!
-                if (msg.author.bot || msg.id === currentMessageId) continue;
-                
-                const num = parseInt(msg.content.trim(), 10);
-                if (!isNaN(num) && num.toString() === msg.content.trim()) {
-                    state.currentCount = num;
-                    state.lastUserId = msg.author.id;
-                    state.initialized = true;
-                    return;
-                }
-            }
-        }
-    } catch (e) {}
-    state.initialized = true;
-}
-
-// --- HELPER FUNCTIE: WOORDENSLANG STAND DYNAMISCH OPHALEN (SLAAT HUIDIG BERICHT OVER) ---
-async function ensureWordSnakeState(channel, currentMessageId) {
-    const state = global.wordSnakeState;
-    if (state.initialized) return;
-
-    try {
-        const messages = await channel.messages.fetch({ limit: 50 }).catch(() => null);
-        if (messages) {
-            const validMessages = [];
-            for (const [id, msg] of messages) {
-                // Sla bots én het huidige net ingestuurde bericht over!
-                if (msg.author.bot || msg.id === currentMessageId) continue;
-                
-                const word = msg.content.trim().toLowerCase();
-                const wordRegex = /^[a-zA-Záéíóúnñçäëïöü-]+$/;
-                
-                if (wordRegex.test(word) && !word.includes(' ') && word.length >= 3) {
-                    validMessages.push({ word, authorId: msg.author.id, msg });
-                }
-            }
-
-            if (validMessages.length > 0) {
-                const lastMsg = validMessages[0];
-                state.currentWord = lastMsg.word;
-                state.lastLetter = lastMsg.word.slice(-1);
-                state.lastUserId = lastMsg.authorId;
-                
-                validMessages.forEach(m => state.usedWords.add(m.word));
-                state.snakeLength = state.usedWords.size;
-                state.initialized = true;
-                return;
-            }
-        }
-    } catch (e) {}
-
-    state.currentWord = 'slang';
-    state.lastLetter = 'g';
-    state.usedWords.add('slang');
-    state.snakeLength = 1;
-    state.initialized = true;
 }
 
 // --- HELPER FUNCTIE: PARTNER LEADERBOARD UPDATEN ---
@@ -615,10 +546,9 @@ export default {
         // ==========================================================
         // GAME 2: TELSYSTEME (#🔢〢count)
         // ==========================================================
-        const isCountingChannel = channelName.includes('count');
+        const isCountingChannel = channelName.includes('count') && !channelName.includes('log');
 
         if (isCountingChannel) {
-            await ensureCountingState(message.channel, message.id);
             const countState = global.countingState;
             const content = message.content.trim();
 
@@ -690,10 +620,9 @@ export default {
         // ==========================================================
         // GAME 3: WOORDENSLANG (#🐍〢word-snake)
         // ==========================================================
-        const isSnakeChannel = channelName.includes('word-snake') || channelName.includes('snake');
+        const isSnakeChannel = channelName.includes('word') || channelName.includes('snake');
 
         if (isSnakeChannel) {
-            await ensureWordSnakeState(message.channel, message.id);
             const state = global.wordSnakeState;
             const inputWord = message.content.trim().toLowerCase();
 
