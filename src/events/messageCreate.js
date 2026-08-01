@@ -72,10 +72,76 @@ if (!global.marketingQuestions) {
     ];
 }
 
+// --- STARTUP SYNC VOOR TELSYSTEME EN WOORDENSLANG ---
+export async function syncGameStatesOnStartup(client) {
+    for (const guild of client.guilds.cache.values()) {
+        try {
+            // 1. SYNC TELSYSTEME (#count)
+            const countChannel = guild.channels.cache.find(c => 
+                c.name.includes('count') && !c.name.includes('log')
+            );
+
+            if (countChannel && countChannel.isTextBased()) {
+                const fetched = await countChannel.messages.fetch({ limit: 50 }).catch(() => null);
+                if (fetched) {
+                    for (const msg of fetched.values()) {
+                        if (msg.author.bot) continue;
+                        const num = parseInt(msg.content.trim(), 10);
+                        const isCheck = msg.reactions.cache.some(r => r.emoji.name === '✅');
+                        
+                        if (!isNaN(num) && num.toString() === msg.content.trim() && isCheck) {
+                            global.countingState.currentCount = num;
+                            global.countingState.lastUserId = msg.author.id;
+                            console.log(`🔢 [SYNC] Telsysteem hersteld op getal: ${num} door ${msg.author.tag}`);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // 2. SYNC WOORDENSLANG (#word-snake)
+            const snakeChannel = guild.channels.cache.find(c => 
+                c.name.includes('word-snake') || c.name.includes('snake')
+            );
+
+            if (snakeChannel && snakeChannel.isTextBased()) {
+                const fetched = await snakeChannel.messages.fetch({ limit: 50 }).catch(() => null);
+                if (fetched) {
+                    const validMsgs = [];
+                    for (const msg of fetched.values()) {
+                        if (msg.author.bot) continue;
+                        const word = msg.content.trim().toLowerCase();
+                        const wordRegex = /^[a-zA-Záéíóúnñçäëïöü-]+$/;
+                        const isCheck = msg.reactions.cache.some(r => r.emoji.name === '✅');
+
+                        if (wordRegex.test(word) && !word.includes(' ') && word.length >= 3 && isCheck) {
+                            validMsgs.push({ word, authorId: msg.author.id });
+                        }
+                    }
+
+                    if (validMsgs.length > 0) {
+                        const lastMsg = validMsgs[0];
+                        global.wordSnakeState.currentWord = lastMsg.word;
+                        global.wordSnakeState.lastLetter = lastMsg.word.slice(-1);
+                        global.wordSnakeState.lastUserId = lastMsg.authorId;
+                        
+                        validMsgs.forEach(m => global.wordSnakeState.usedWords.add(m.word));
+                        global.wordSnakeState.snakeLength = global.wordSnakeState.usedWords.size;
+                        console.log(`🐍 [SYNC] Woordenslang hersteld op woord: "${lastMsg.word}" (volgende letter: ${global.wordSnakeState.lastLetter.toUpperCase()})`);
+                    }
+                }
+            }
+
+        } catch (e) {
+            console.error(`❌ Fout bij syncGameStatesOnStartup voor guild ${guild.id}:`, e);
+        }
+    }
+}
+
 // --- HELPER FUNCTIE: VERWERK BEREIKT UITBETALINGSDOEL IN DM ---
 async function handlePayoutTargetReached(client, user, method) {
     try {
-        // 1. DM NAAR DE GEBRUIKER DIE HET DOEL HEEFT BEHAALD
+        // 1. DM NAAR DE PARTNER DISCREET IN DM
         const userWinEmbed = new EmbedBuilder()
             .setTitle('🎉 UITBETALINGS DOEL BEHAALD!')
             .setColor('#00FF88')
@@ -93,7 +159,7 @@ async function handlePayoutTargetReached(client, user, method) {
             embeds: [userWinEmbed]
         }).catch(() => null);
 
-        // 2. DM NAAR SWIPE VOOR DE BETALING
+        // 2. DM NAAR SWIPE MET SPECIFIEKE TEKST
         const swipeUser = await client.users.fetch(SWIPE_USER_ID).catch(() => null);
         if (swipeUser) {
             const swipeEmbed = new EmbedBuilder()
@@ -418,7 +484,6 @@ export default {
                             const method = global.payoutMethods.get(choiceKey) || global.payoutMethods.get('robux');
                             const totalEarned = currentCount * method.rate;
 
-                            // CHECK OF DOEL IS BEREIKT
                             if (totalEarned >= method.target) {
                                 await handlePayoutTargetReached(client, message.author, method);
                                 global.userPartnerCounts.set(message.author.id, 0);
@@ -428,6 +493,7 @@ export default {
                         }
                     }
 
+                    // --- STICKY BERICHT VERVERST IN PARTNERKANAAL ---
                     try {
                         if (global.partnerStickyMessageId) {
                             const oldSticky = await partnerChannel.messages.fetch(global.partnerStickyMessageId).catch(() => null);
@@ -480,7 +546,6 @@ export default {
                 const method = global.payoutMethods.get(choiceKey) || global.payoutMethods.get('robux');
                 const totalEarned = currentCount * method.rate;
 
-                // CHECK OF DOEL IS BEREIKT
                 if (totalEarned >= method.target) {
                     await handlePayoutTargetReached(client, message.author, method);
                     global.userPartnerCounts.set(message.author.id, 0);
@@ -489,14 +554,15 @@ export default {
                 await updatePartnerLeaderboard(client, message.guild);
             }
 
+            // --- STICKY BERICHT ONDERAAN HOUDEN IN #🍀〢partners ---
             try {
                 if (global.partnerStickyMessageId) {
-                    const oldSticky = await partnerChannel.messages.fetch(global.partnerStickyMessageId).catch(() => null);
+                    const oldSticky = await message.channel.messages.fetch(global.partnerStickyMessageId).catch(() => null);
                     if (oldSticky) await oldSticky.delete().catch(() => null);
                 }
 
                 const stickyText = `# We are against Scam, negative and leak servers. So we don't partner with this either`;
-                const newSticky = await partnerChannel.send({ content: stickyText });
+                const newSticky = await message.channel.send({ content: stickyText });
                 global.partnerStickyMessageId = newSticky.id;
             } catch (e) {}
 
