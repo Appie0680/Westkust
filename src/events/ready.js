@@ -5,6 +5,7 @@ import { reconcileReactionRoleMessages } from "../services/reactionRoleService.j
 import { reconcileTicketPanels, reconcileVerificationPanels, reconcileReactionRolePanelHealth } from "../services/panelHealthService.js";
 import { reconcileLevelRoles } from "../services/leveling/levelRoleSyncService.js";
 import { initRiffyAfterReady } from "../services/music/riffySetup.js";
+import { syncGameStatesOnStartup } from "./messageCreate.js";
 
 const ABSENT_ROLE_ID = '1531246008925945946';
 
@@ -23,6 +24,11 @@ export default {
       if (client.config?.features?.music) {
         initRiffyAfterReady(client);
       }
+
+      // --- AUTOMATISCHE SYNC VAN SPELLETJES OP STARTUP ---
+      await syncGameStatesOnStartup(client).catch(err => {
+        logger.error("Fout bij synchroniseren van spelstanden op startup:", err);
+      });
 
       const reconciliationSummary = await reconcileReactionRoleMessages(client);
       startupLog(
