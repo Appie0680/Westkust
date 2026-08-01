@@ -141,7 +141,7 @@ export async function syncGameStatesOnStartup(client) {
 // --- HELPER FUNCTIE: VERWERK BEREIKT UITBETALINGSDOEL IN DM ---
 async function handlePayoutTargetReached(client, user, method) {
     try {
-        // 1. DM NAAR DE PARTNER DISCREET IN DM
+        // 1. DM NAAR DE PARTNER DIE HET DOEL BEHAALD HEEFT
         const userWinEmbed = new EmbedBuilder()
             .setTitle('🎉 UITBETALINGS DOEL BEHAALD!')
             .setColor('#00FF88')
@@ -149,17 +149,20 @@ async function handlePayoutTargetReached(client, user, method) {
             .setDescription(
                 `🏆 **Gefeliciteerd <@${user.id}>!**\n\n` +
                 `Je hebt jouw uitbetalingsdoel van **${method.target} ${method.unit}** (${method.name}) behaald!\n\n` +
-                `📩 **Je mag nu naar Swipe z'n DM voor je uitbetaling!**`
+                `📩 **Stuur direct een DM naar <@${SWIPE_USER_ID}> (\`officieel.swipe\`) voor jouw uitbetaling!**\n\n` +
+                `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+                `🔄 **Aandacht:** Jouw partner-statistieken zijn nu gereset voor de volgende ronde.\n` +
+                `⚙️ **Kies een nieuwe (of dezelfde) uitbetalingsmethode** in het kanaal voor de partner-logs om weer verder te sparen!`
             )
             .setFooter({ text: 'Nexus Partner Payout System' })
             .setTimestamp();
 
         await user.send({
-            content: `🎉 Gefeliciteerd <@${user.id}>! Je hebt je uitbetalingsdoel behaald! Je mag naar Swipe z'n DM voor je uitbetaling! 📩`,
+            content: `🎉 **Gefeliciteerd <@${user.id}>!** Je hebt jouw uitbetalingsdoel behaald! Stuur een DM naar Swipe voor je uitbetaling en kies een nieuwe methode in het partner-log kanaal! 📩`,
             embeds: [userWinEmbed]
         }).catch(() => null);
 
-        // 2. DM NAAR SWIPE MET SPECIFIEKE TEKST
+        // 2. DM NAAR SWIPE VOOR DE BETALING
         const swipeUser = await client.users.fetch(SWIPE_USER_ID).catch(() => null);
         if (swipeUser) {
             const swipeEmbed = new EmbedBuilder()
@@ -493,7 +496,6 @@ export default {
                         }
                     }
 
-                    // --- STICKY BERICHT VERVERST IN PARTNERKANAAL ---
                     try {
                         if (global.partnerStickyMessageId) {
                             const oldSticky = await partnerChannel.messages.fetch(global.partnerStickyMessageId).catch(() => null);
@@ -554,10 +556,9 @@ export default {
                 await updatePartnerLeaderboard(client, message.guild);
             }
 
-            // --- STICKY BERICHT ONDERAAN HOUDEN IN #🍀〢partners ---
             try {
                 if (global.partnerStickyMessageId) {
-                    const oldSticky = await message.channel.messages.fetch(global.partnerStickyMessageId).catch(() => null);
+                    const oldSticky = await partnerChannel.messages.fetch(global.partnerStickyMessageId).catch(() => null);
                     if (oldSticky) await oldSticky.delete().catch(() => null);
                 }
 
